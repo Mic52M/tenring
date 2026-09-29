@@ -7,9 +7,14 @@ from YOUR baseline, while the literature guardrails in reference.yaml still catc
 gross faults.
 
 Usage:
+    tenring-calibrate
     python -m tenring.calibrate --seconds 6
 """
 from __future__ import annotations
+
+import os
+os.environ.setdefault("GLOG_minloglevel", "2")
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
 import argparse
 import time
@@ -29,11 +34,14 @@ NEUTRAL_KEYS = ["torso_lean", "shoulder_elevation", "arm_extension",
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="tenring — calibrazione posturale personale")
-    ap.add_argument("--camera", type=int, default=0)
+    ap.add_argument("--camera", type=int, default=-1,
+                    help="indice camera (default: auto)")
     ap.add_argument("--list-cameras", action="store_true",
                     help="elenca le camere disponibili ed esci")
     ap.add_argument("--seconds", type=float, default=6.0)
-    ap.add_argument("--mirror", action="store_true")
+    ap.add_argument("--mirror", dest="mirror", action="store_true", default=True,
+                    help="effetto specchio (default: attivo)")
+    ap.add_argument("--no-mirror", dest="mirror", action="store_false")
     args = ap.parse_args()
 
     if args.list_cameras:
@@ -43,7 +51,8 @@ def main() -> None:
     ref = cfg.load_reference()
     handedness = ref["setup"]["handedness"]
 
-    cap = capture.open_camera(args.camera)
+    cam_index = args.camera if args.camera >= 0 else capture.autodetect()
+    cap = capture.open_camera(cam_index)
 
     print(f"[calibrate] Mettiti nella tua posizione di tiro ottimale.")
     print(f"[calibrate] Raccolgo per {args.seconds:.0f}s dopo il conto alla rovescia...")

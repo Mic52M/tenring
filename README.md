@@ -45,24 +45,37 @@ pip install -e .          # installa il package `tenring` (necessario per `pytho
 Concedi al terminale l'accesso alla fotocamera:
 **Impostazioni di sistema → Privacy e sicurezza → Fotocamera**.
 
-## Uso
+## Uso — semplice
 
-1. **Calibrazione** (una volta): mettiti nella tua migliore posizione di tiro; l'app
-   registra la *tua* postura neutra come riferimento personale.
-   ```bash
-   python -m tenring.calibrate --seconds 6 --mirror
-   ```
-   Salva `config/profile.yaml`.
+Un comando. Sceglie la webcam del Mac da solo (salta l'iPhone/Continuity Camera),
+apre la finestra, premi **Q** per uscire.
 
-2. **Sessione live**: PC alla tua sinistra, inquadratura piena dai piedi alla testa.
-   ```bash
-   python -m tenring.app --mirror
-   ```
-   - Pannello a sinistra: semaforo verde/giallo/rosso + cue per ogni metrica.
-   - `s` salva un resoconto della sessione; `q` esce (salva automaticamente).
-   - I resoconti finiscono in `sessions/`.
+```bash
+tenring
+```
 
-Opzioni utili: `--camera N`, `--complexity {0,1,2}` (0 = più veloce, 2 = più preciso).
+- Pannello a sinistra: semaforo verde/giallo/rosso + cue per ogni metrica.
+- `q` (o ESC) esce e salva il resoconto; `s` salva un resoconto al volo.
+- I resoconti finiscono in `sessions/`.
+
+**Calibrazione personale** (opzionale, una volta): mettiti nella tua migliore
+posizione di tiro; registra la *tua* postura neutra come riferimento.
+
+```bash
+tenring-calibrate
+```
+
+### Opzioni (se servono)
+
+| Opzione | Cosa fa |
+|---|---|
+| `tenring --list-cameras` | elenca le camere per scegliere l'indice giusto |
+| `tenring --camera 1` | forza una camera specifica |
+| `tenring --no-mirror` | disattiva l'effetto specchio (per camera di profilo) |
+| `tenring --complexity 2` | modello più preciso (0 = più veloce) |
+
+> In alternativa ai comandi `tenring` / `tenring-calibrate` puoi usare
+> `python -m tenring.app` e `python -m tenring.calibrate`.
 
 ## Architettura
 

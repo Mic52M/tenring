@@ -44,6 +44,26 @@ def print_cameras(max_index: int = 6) -> None:
           "La webcam integrata del Mac è di solito un altro indice.")
 
 
+def autodetect() -> int:
+    """Pick the best working camera automatically.
+
+    Prefers the HIGHEST index that actually delivers frames: on macOS the iPhone
+    (Continuity Camera) sits at index 0, while the built-in Mac webcam is a higher
+    index, so this tends to pick the Mac webcam and skip the phone.
+    """
+    cams = list_cameras()
+    readable = [c["index"] for c in cams if c["reads"]]
+    if readable:
+        return max(readable)
+    if cams:
+        return cams[0]["index"]
+    raise SystemExit(
+        "Nessuna webcam trovata.\n"
+        "  Concedi l'accesso in Impostazioni > Privacy e sicurezza > Fotocamera, "
+        "poi riapri il terminale."
+    )
+
+
 def open_camera(index: int, width: int = 1280, height: int = 720,
                 warmup_frames: int = 30) -> cv2.VideoCapture:
     """Open a camera and wait until it delivers real frames.

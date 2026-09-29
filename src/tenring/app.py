@@ -4,12 +4,16 @@ Pipeline per frame:
     capture -> pose (MediaPipe) -> metrics -> rules -> hold/stability -> overlay
 On exit (or 's'), prints/saves a session summary (consistency + stability).
 
-Usage:
-    python -m tenring.app                 # default webcam (index 0)
-    python -m tenring.app --camera 1
-    python -m tenring.app --mirror        # flip horizontally
+Uso semplice (sceglie la webcam da solo, premi Q per uscire):
+    tenring
+    python -m tenring.app
 """
 from __future__ import annotations
+
+import os
+# Silenzia i log verbosi di MediaPipe/TensorFlow (prima di importare mediapipe).
+os.environ.setdefault("GLOG_minloglevel", "2")
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
 import argparse
 import time
@@ -29,10 +33,14 @@ from .ui import overlay
 
 def parse_args():
     ap = argparse.ArgumentParser(description="tenring — 10m air pistol posture coach")
-    ap.add_argument("--camera", type=int, default=0, help="camera index")
+    ap.add_argument("--camera", type=int, default=-1,
+                    help="indice camera (default: auto, sceglie la webcam del Mac)")
     ap.add_argument("--list-cameras", action="store_true",
                     help="elenca le camere disponibili ed esci")
-    ap.add_argument("--mirror", action="store_true", help="flip frame horizontally")
+    ap.add_argument("--mirror", dest="mirror", action="store_true", default=True,
+                    help="effetto specchio (default: attivo)")
+    ap.add_argument("--no-mirror", dest="mirror", action="store_false",
+                    help="disattiva l'effetto specchio (per camera di profilo)")
     ap.add_argument("--width", type=int, default=1280)
     ap.add_argument("--height", type=int, default=720)
     ap.add_argument("--complexity", type=int, default=1, choices=[0, 1, 2],
@@ -52,15 +60,18 @@ def main() -> None:
 
     engine = RuleEngine(ref, profile)
 
-    cap = capture.open_camera(args.camera, args.width, args.height)
+    cam_index = args.camera if args.camera >= 0 else capture.autodetect()
+    cap = capture.open_camera(cam_index, args.width, args.height)
     fps_guess = cap.get(cv2.CAP_PROP_FPS) or 30.0
     tracker = HoldTracker(ref, fps=fps_guess if fps_guess > 1 else 30.0)
 
+    print(f"[tenring] webcam {cam_index} aperta. Premi Q (o ESC) per uscire, "
+          "S per salvare il resoconto.")
     if profile:
         print("[tenring] profilo personale caricato (calibrazione attiva).")
     else:
         print("[tenring] nessun profilo: uso i riferimenti da letteratura. "
-              "Esegui 'python -m tenring.calibrate' per personalizzare.")
+              "Esegui 'tenring-calibrate' per personalizzare.")
 
     win = "tenring"
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)
