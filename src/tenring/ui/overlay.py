@@ -105,6 +105,44 @@ def draw_panel(
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1, cv2.LINE_AA)
 
 
+def draw_banner(frame: np.ndarray, findings: list[Finding],
+                stability: Optional[Stability]) -> None:
+    """Big glanceable bar at the top: the single most important correction now."""
+    worst = None
+    for f in findings:
+        if f.status == Status.BAD and f.cue:
+            worst = f
+            break
+    if worst is None:
+        for f in findings:
+            if f.status == Status.WARN and f.cue:
+                worst = f
+                break
+
+    h, w = frame.shape[:2]
+    x0, bar_h = 350, 76
+    overlay_img = frame.copy()
+    color = worst.color if worst else (80, 200, 80)
+    cv2.rectangle(overlay_img, (x0, 0), (w, bar_h), (20, 20, 20), -1)
+    cv2.addWeighted(overlay_img, 0.75, frame, 0.25, 0, frame)
+    cv2.rectangle(frame, (x0, 0), (x0 + 8, bar_h), color, -1)  # colored edge
+
+    if worst is None:
+        cv2.putText(frame, "Postura OK", (x0 + 24, 48),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2, cv2.LINE_AA)
+    else:
+        lines = _wrap(f"{worst.label}: {worst.cue}", 46)[:2]
+        y = 32 if len(lines) > 1 else 46
+        for line in lines:
+            cv2.putText(frame, line, (x0 + 24, y),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2, cv2.LINE_AA)
+            y += 30
+
+    if stability is not None and stability.in_hold:
+        cv2.putText(frame, "HOLD", (w - 110, bar_h + 34),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, (80, 220, 120), 2, cv2.LINE_AA)
+
+
 def _wrap(text: str, width: int) -> list[str]:
     words, lines, cur = text.split(), [], ""
     for wd in words:

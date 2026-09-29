@@ -28,6 +28,8 @@ from .analysis.metrics import compute
 from .analysis.rules import RuleEngine
 from .analysis.phases import HoldTracker
 from .analysis.session import summarize
+from .analysis.recorder import SessionRecorder
+from .report import build_report
 from .ui import overlay
 
 
@@ -75,6 +77,7 @@ def main() -> None:
 
     win = "tenring"
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)
+    recorder = SessionRecorder()
     prev = time.time()
     fps = 0.0
 
@@ -98,10 +101,12 @@ def main() -> None:
             findings = engine.evaluate(m)
             now = time.time()
             stability = tracker.update(m, now)
+            recorder.add(now, m, findings, stability)
 
             overlay.draw_skeleton(frame, pose)
             overlay.draw_panel(frame, findings, stability, ref,
                                fps=fps, n_shots=len(tracker.shots))
+            overlay.draw_banner(frame, findings, stability)
 
             dt = now - prev
             prev = now
@@ -113,27 +118,43 @@ def main() -> None:
             if key in (ord("q"), 27):
                 break
             if key == ord("s"):
-                _save_summary(tracker, ref)
+                _save_session(tracker, recorder, ref)
 
     cap.release()
     cv2.destroyAllWindows()
-    _save_summary(tracker, ref, final=True)
+    _save_session(tracker, recorder, ref, final=True)
 
 
-def _save_summary(tracker: HoldTracker, ref: dict, final: bool = False) -> None:
-    summary = summarize(tracker.shots)
-    if summary is None:
+def _save_session(tracker: HoldTracker, recorder: SessionRecorder, ref: dict,
+                  final: bool = False) -> None:
+    if len(recorder) == 0:
         if final:
-            print("[tenring] nessun colpo rilevato in questa sessione.")
+            print("[tenring] nessun dato registrato (corpo non rilevato).")
         return
-    text = summary.to_text(ref)
-    print("\n" + text)
+
+    summary = summarize(tracker.shots)
     out = Path(cfg._ROOT) / "sessions"
     out.mkdir(exist_ok=True)
     stamp = time.strftime("%Y%m%d_%H%M%S")
-    fpath = out / f"session_{stamp}.txt"
-    fpath.write_text(text, encoding="utf-8")
-    print(f"[tenring] resoconto salvato in {fpath}")
+    when = time.strftime("%d/%m/%Y %H:%M")
+
+    # raw per-frame log
+    recorder.save_jsonl(out / f"session_{stamp}.jsonl")
+
+    # text summary (if shots detected)
+    if summary is not None:
+        (out / f"session_{stamp}.txt").write_text(summary.to_text(ref), encoding="utf-8")
+        print("\n" + summary.to_text(ref))
+
+    # HTML report + open it
+    html_path = out / f"session_{stamp}.html"
+    build_report(recorder.frames, tracker.shots, summary, ref, html_path, when=when)
+    print(f"[tenring] report: {html_path}")
+    try:
+        import webbrowser
+        webbrowser.open(f"file://{html_path}")
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

@@ -54,9 +54,12 @@ apre la finestra, premi **Q** per uscire.
 tenring
 ```
 
-- Pannello a sinistra: semaforo verde/giallo/rosso + cue per ogni metrica.
-- `q` (o ESC) esce e salva il resoconto; `s` salva un resoconto al volo.
-- I resoconti finiscono in `sessions/`.
+- **Banner grande in alto**: la correzione più importante in quel momento (leggibile
+  mentre miri); pannello a sinistra: semaforo + cue per ogni metrica.
+- `q` (o ESC) esce e **apre da solo un report HTML** con verdetto, difetti su cui
+  lavorare, grafici (timeline, distribuzione difetti, stabilità) e ripetibilità
+  colpo-su-colpo; `s` genera un report al volo.
+- Tutto finisce in `sessions/` (`.html` report, `.jsonl` dati per-frame, `.txt` sintesi).
 
 **Calibrazione personale** (opzionale, una volta): mettiti nella tua migliore
 posizione di tiro; registra la *tua* postura neutra come riferimento.
@@ -103,10 +106,13 @@ pytest
 
 ## Roadmap
 
+- [x] Report HTML di sessione con grafici (timeline, distribuzione difetti,
+      stabilità, ripetibilità).
+- [x] Banner live con la correzione prioritaria.
 - [ ] Fase 2: **seconda camera** (telefono frontale/posteriore) per quadratura
       spalle e rotazione busto — fusione multi-vista.
 - [ ] Rilevamento del colpo più robusto (audio dello scatto / marcatura manuale).
-- [ ] Grafici di trend tra sessioni.
+- [ ] Grafici di **trend tra sessioni** (dai `.jsonl` già salvati).
 - [ ] Confronto con una posa "gold" personale sovrapposta.
 
 ## Stato
