@@ -155,21 +155,134 @@ def _top_faults(dist: dict, n: int = 3) -> list:
     return out
 
 
+# Per-metric "notable" shot-to-shot spread: std at/above this = worth attention.
+# Lets us compare degrees vs ratios on one scale (std / notable).
+NOTABLE_STD = {
+    "torso_lean": 3.0, "shoulder_elevation": 0.05, "arm_extension": 5.0,
+    "wrist_alignment": 5.0, "head_tilt": 4.0, "stance_width": 0.10,
+    "weight_balance": 0.05,
+}
+
+
+def _chart_shots(shots: list, ref: dict) -> Optional[str]:
+    if not shots:
+        return None
+    idx = list(range(1, len(shots) + 1))
+    jit = [s.wrist_jitter for s in shots]
+    dur = [s.duration for s in shots]
+    s = ref["stability"]
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(7.2, 3.4), facecolor=_BG, sharex=True)
+    ax1.bar(idx, jit, color="#b07cf0")
+    ax1.axhline(s["wrist_jitter_warn"], color=_WARN, linestyle="--", linewidth=1)
+    ax1.axhline(s["wrist_jitter_bad"], color=_BAD, linestyle="--", linewidth=1)
+    ax1.set_ylabel("tremore")
+    ax1.set_title("Per colpo: tremore in hold e durata")
+    _style(ax1)
+    ax2.bar(idx, dur, color="#5aa9e6")
+    ax2.set_ylabel("hold (s)")
+    ax2.set_xlabel("colpo #")
+    ax2.set_xticks(idx)
+    _style(ax2)
+    fig.tight_layout()
+    return _fig_to_b64(fig)
+
+
+def _chart_shot_consistency(shots: list) -> Optional[str]:
+    if len(shots) < 2:
+        return None
+    keys = ["torso_lean", "shoulder_elevation", "arm_extension", "wrist_alignment"]
+    idx = list(range(1, len(shots) + 1))
+    fig, ax = plt.subplots(figsize=(7.2, 2.9), facecolor=_BG)
+    plotted = False
+    for k in keys:
+        vals = np.array([s.metrics_mean.get(k, np.nan) for s in shots], float)
+        if np.all(np.isnan(vals)):
+            continue
+        mean = np.nanmean(vals)
+        # normalise by the metric's notable std so all metrics share one y-scale
+        norm = (vals - mean) / NOTABLE_STD.get(k, 1.0)
+        ax.plot(idx, norm, marker="o", linewidth=1.2, label=METRIC_LABELS[k])
+        plotted = True
+    if not plotted:
+        plt.close(fig)
+        return None
+    ax.axhline(0, color="#666", linewidth=0.8)
+    ax.axhspan(-1, 1, color="#4fc36b", alpha=0.08)  # "consistent" band
+    ax.set_xlabel("colpo #")
+    ax.set_ylabel("scarto dal tuo assetto\n(unità di consistenza)")
+    ax.set_title("Ripetibilità colpo-su-colpo (dentro la fascia verde = costante)")
+    ax.set_xticks(idx)
+    _style(ax)
+    ax.legend(facecolor=_BG, edgecolor="#3a3f47", labelcolor=_FG, fontsize=7)
+    return _fig_to_b64(fig)
+
+
+def _consistency_faults(summary, n: int = 3) -> list:
+    """Rank metrics by shot-to-shot spread relative to their notable std."""
+    if not summary or summary.n_shots < 2:
+        return []
+    ranked = []
+    for k, label in METRIC_LABELS.items():
+        std = summary.consistency.get(k, float("nan"))
+        if std != std:  # NaN
+            continue
+        ratio = std / NOTABLE_STD.get(k, 1.0)
+        ranked.append((label, std, ratio))
+    ranked.sort(key=lambda x: x[2], reverse=True)
+    return [(label, std) for label, std, ratio in ranked[:n] if ratio >= 1.0]
+
+
+def _verdict_consistency(summary, ref: dict) -> tuple:
+    """Verdict from repeatability + stability (the reliable signals)."""
+    if not summary or summary.n_shots < 2:
+        return ("Servono più colpi per il verdetto", _WARN, 0)
+    # consistency: 1 = every metric well within its notable std
+    ratios = []
+    for k in METRIC_LABELS:
+        std = summary.consistency.get(k, float("nan"))
+        if std == std:
+            ratios.append(min(1.0, NOTABLE_STD.get(k, 1.0) / max(std, 1e-6)))
+    consistency = float(np.mean(ratios)) if ratios else 0.0
+    # stability: from mean tremor vs thresholds
+    s = ref["stability"]
+    jit = summary.mean_wrist_jitter
+    if jit != jit:
+        stability = consistency
+    else:
+        stability = float(np.clip(
+            1.0 - (jit - s["wrist_jitter_warn"]) /
+            max(s["wrist_jitter_bad"] - s["wrist_jitter_warn"], 1e-6), 0.0, 1.0))
+        stability = 1.0 if jit <= s["wrist_jitter_warn"] else stability
+    score = 100.0 * (0.6 * consistency + 0.4 * stability)
+    if score >= 80:
+        return ("Molto costante", _OK, score)
+    if score >= 60:
+        return ("Costante, con margini", _WARN, score)
+    return ("Ripetibilità da migliorare", _BAD, score)
+
+
 def build_report(records: list, shots: list, summary, ref: dict,
                  out_path: Path, when: str = "") -> Path:
     dist = _fault_distribution(records)
     mean_jit = summary.mean_wrist_jitter if summary else float("nan")
-    verdict, vcolor, score = _verdict(dist, mean_jit, ref)
-    top = _top_faults(dist)
+    verdict, vcolor, score = _verdict_consistency(summary, ref)
+    top = _consistency_faults(summary)
 
     charts = []
-    if dist:
-        charts.append(("", _chart_distribution(dist)))
+    # Per-shot analysis first — the core view for single-shot air pistol.
+    sc = _chart_shots(shots, ref)
+    if sc:
+        charts.append(("", sc))
+    scc = _chart_shot_consistency(shots)
+    if scc:
+        charts.append(("", scc))
     if records:
         charts.append(("", _chart_timeline(records, shots)))
     st_chart = _chart_stability(records, ref)
     if st_chart:
         charts.append(("", st_chart))
+    if dist:
+        charts.append(("", _chart_distribution(dist)))
 
     # consistency table
     cons_rows = ""
@@ -182,9 +295,13 @@ def build_report(records: list, shots: list, summary, ref: dict,
                               f"<td>{std:.2f}</td></tr>")
     n_shots = summary.n_shots if summary else 0
 
-    top_html = "".join(
-        f'<li><b>{name}</b> — fuori tolleranza per il {pct}% del tempo</li>'
-        for name, pct in top) or "<li>Nessun difetto rilevante 👌</li>"
+    if summary and summary.n_shots >= 2:
+        top_html = "".join(
+            f'<li><b>{name}</b> — poco ripetibile: varia di ±{std:.2f} tra i colpi</li>'
+            for name, std in top) or "<li>Ottima ripetibilità colpo-su-colpo 👌</li>"
+    else:
+        top_html = ("<li>Servono almeno 2 colpi per l'analisi di ripetibilità. "
+                    "Esegui il ciclo: alza il braccio, mira, spara, abbassa.</li>")
 
     # Metrics never reliably in frame -> not judged (honest reporting).
     not_eval = [label for k, label in METRIC_LABELS.items() if k not in dist]
@@ -245,14 +362,14 @@ tr:last-child td{{border-bottom:none}}
 <div class="hero">
   <div class="score" style="color:{vcolor}">{score}</div>
   <div><div class="verdict" style="color:{vcolor}">{verdict}</div>
-  <div class="muted">punteggio postura 0–100 (frame entro tolleranza)</div></div>
+  <div class="muted">punteggio 0–100 (ripetibilità colpo-su-colpo + stabilità)</div></div>
 </div>
 <div class="grid">
   <div class="stat"><div class="n">{n_shots}</div><div class="l">colpi rilevati</div></div>
   <div class="stat"><div class="n">{n_frames}</div><div class="l">frame in posizione</div></div>
   <div class="stat"><div class="n">{mean_jit}</div><div class="l">tremore medio (hold)</div></div>
 </div>
-<h2>Su cosa lavorare</h2><ul>{top_html}</ul>
+<h2>Su cosa lavorare (ripetibilità)</h2><ul>{top_html}</ul>
 {noteval_html}
 <h2>Grafici</h2>{charts_html}
 <h2>Ripetibilità colpo-su-colpo</h2>

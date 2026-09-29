@@ -79,6 +79,7 @@ class StateMachine:
         self._sw: deque = deque(maxlen=self.window)
         self._metric_buf: deque = deque(maxlen=self.window)
 
+        self.fps = fps if fps > 1 else 30.0
         self.state = State.IDLE
         self._aim_run = 0        # consecutive 'looks like aiming' frames
         self._down_run = 0       # consecutive 'arm down' frames
@@ -88,6 +89,9 @@ class StateMachine:
         self._hold_achieved = False
         self._best_jitter = float("inf")
         self._best_sway = float("nan")
+        self._best_metrics: Optional[Metrics] = None
+        self._hold_frames_max = 0
+        self._t_raise = 0.0
         self.shots: list[ShotEvent] = []
 
     # -- helpers ---------------------------------------------------------------
@@ -137,7 +141,7 @@ class StateMachine:
             self.state = State.READY
             if self._aim_run >= self.enter_aim:
                 self.state = State.AIMING
-                self._start_attempt()
+                self._start_attempt(t)
         elif self.state in (State.AIMING, State.HOLD):
             # still holding?
             still = np.isfinite(jitter) and jitter <= self.hold_still_jitter
@@ -145,9 +149,12 @@ class StateMachine:
             if self._hold_frames >= self.hold_min_frames:
                 self.state = State.HOLD
                 self._hold_achieved = True
+                self._hold_frames_max = max(self._hold_frames_max, self._hold_frames)
+                # snapshot the posture at the STEADIEST instant of the hold
                 if np.isfinite(jitter) and jitter < self._best_jitter:
                     self._best_jitter = jitter
                     self._best_sway = sway
+                    self._best_metrics = m
             else:
                 self.state = State.AIMING
             # arm lowered -> shot taken (if a real hold happened)
@@ -163,12 +170,15 @@ class StateMachine:
         return fs
 
     # -- attempt bookkeeping ---------------------------------------------------
-    def _start_attempt(self) -> None:
+    def _start_attempt(self, t: float = 0.0) -> None:
         self._attempt_active = True
         self._hold_achieved = False
         self._hold_frames = 0
+        self._hold_frames_max = 0
         self._best_jitter = float("inf")
         self._best_sway = float("nan")
+        self._best_metrics = None
+        self._t_raise = t
 
     def _end_attempt(self, t: float) -> None:
         if self._attempt_active and self._hold_achieved:
@@ -180,17 +190,17 @@ class StateMachine:
     def _register_shot(self, t: float) -> None:
         keys = ["torso_lean", "shoulder_elevation", "arm_extension",
                 "wrist_alignment", "head_tilt", "stance_width", "weight_balance"]
+        snap = self._best_metrics
         means = {}
         for k in keys:
-            vals = [getattr(mm, k) for mm in self._metric_buf
-                    if np.isfinite(getattr(mm, k))]
-            means[k] = float(np.mean(vals)) if vals else float("nan")
+            v = getattr(snap, k) if snap is not None else float("nan")
+            means[k] = float(v) if (v is not None and np.isfinite(v)) else float("nan")
         self.shots.append(ShotEvent(
             t_end=t,
             wrist_jitter=(self._best_jitter if self._best_jitter != float("inf")
                           else float("nan")),
             sway=self._best_sway,
-            duration=self.window,
+            duration=self._hold_frames_max / self.fps,  # hold length in seconds
             metrics_mean=means,
         ))
 

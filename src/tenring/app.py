@@ -30,6 +30,7 @@ from .analysis.state import StateMachine
 from .analysis.session import summarize
 from .analysis.recorder import SessionRecorder
 from .analysis.arm import ArmSelector
+from .analysis.baseline import SessionBaseline
 from .report import build_report
 from .ui import overlay
 
@@ -80,6 +81,7 @@ def main() -> None:
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)
     recorder = SessionRecorder()
     arm = ArmSelector(default=handedness)
+    baseline = SessionBaseline(prior=(profile or {}).get("neutral"))
     prev = time.time()
     fps = 0.0
 
@@ -101,13 +103,17 @@ def main() -> None:
             pose = backend.process(frame)
             armed_side = arm.update(pose)
             m = compute(pose, handedness=armed_side)
-            findings = engine.evaluate(m)
             now = time.time()
             fs = sm.update(m, now)
 
-            # Record/report ONLY when actually in the aiming position.
+            # Record/report ONLY when actually in the aiming position, and judge
+            # against the session's own settled posture (adaptive baseline).
             if fs.is_aiming:
+                baseline.update(m)
+                findings = engine.evaluate(m, neutral=baseline.as_dict())
                 recorder.add(now, m, findings, fs)
+            else:
+                findings = engine.evaluate(m)
 
             overlay.draw_skeleton(frame, pose)
             overlay.draw_panel(frame, findings, fs, ref,

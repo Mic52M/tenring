@@ -49,13 +49,14 @@ class RuleEngine:
     def __init__(self, ref: dict, profile: Optional[dict] = None) -> None:
         self.ref = ref
         self.profile = profile or {}
+        self._active_neutral: dict = {}
 
     # -- helpers ---------------------------------------------------------------
     def _neutral(self, key: str, default: float) -> float:
-        return float(self.profile.get("neutral", {}).get(key, default))
+        return float(self._active_neutral.get(key, default))
 
     def _has_neutral(self, key: str) -> bool:
-        return key in self.profile.get("neutral", {})
+        return key in self._active_neutral
 
     def _eval_symmetric_dev(self, key: str, label: str, value: float,
                             c: dict) -> Finding:
@@ -77,7 +78,11 @@ class RuleEngine:
         return Status.OK, ""
 
     # -- main ------------------------------------------------------------------
-    def evaluate(self, m: Metrics) -> list[Finding]:
+    def evaluate(self, m: Metrics, neutral: Optional[dict] = None) -> list[Finding]:
+        # Reference to judge deviation against: the session baseline if given,
+        # else a stored calibration profile (fallback for tests / no-baseline).
+        self._active_neutral = neutral if neutral is not None \
+            else self.profile.get("neutral", {})
         f: list[Finding] = []
         r = self.ref
 

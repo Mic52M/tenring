@@ -117,6 +117,11 @@ pytest
       alza → hold → abbassa il braccio).
 - [x] Auto-rilevamento braccio che spara + gating visibilità (valuta solo ciò
       che è inquadrato).
+- [x] Baseline adattivo di sessione: valuta la deviazione dal TUO assetto in
+      questa sessione (mediana mobile), non da soglie assolute inaffidabili da
+      webcam. Risolve il "100% fuori tolleranza".
+- [x] Tracking e grafici **per-colpo** (tremore + durata hold per colpo,
+      ripetibilità colpo-su-colpo). Postura del colpo = istante più fermo dell'hold.
 - [ ] Fase 2: **seconda camera** (telefono frontale/posteriore) per quadratura
       spalle e rotazione busto — fusione multi-vista.
 - [ ] Rilevamento del colpo più robusto (audio dello scatto / marcatura manuale).
