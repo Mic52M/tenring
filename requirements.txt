@@ -1,0 +1,8 @@
+# Core MVP dependencies (Apple Silicon / macOS, CPU — nessuna GPU esterna).
+# MediaPipe (Tasks API; il modello .task viene scaricato al primo avvio).
+# Pin a 0.10.21: la 1.0.1 ha un bug del PoseLandmarker su macOS arm64
+# ("graph_service: Service is unavailable"). Consigliato Python 3.11/3.12.
+mediapipe==0.10.21
+opencv-python>=4.9
+numpy>=1.26,<2.3
+PyYAML>=6.0

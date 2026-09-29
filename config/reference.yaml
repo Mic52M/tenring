@@ -1,0 +1,118 @@
+# =============================================================================
+# tenring — Riferimenti e soglie per l'analisi posturale (10 m air pistol)
+# =============================================================================
+# Ogni voce cita il punto di docs/THEORY.md da cui deriva.
+# Le soglie sono valori di PARTENZA ragionevoli, pensati per essere:
+#   1) sovrascritti dalla CALIBRAZIONE personale (config/profile.yaml), e
+#   2) affinati con l'uso.
+# "warn" = fascia gialla (attenzione), "bad" = fascia rossa (errore).
+# Gli angoli sono in gradi; le distanze normalizzate su un riferimento corporeo
+# (es. larghezza spalle) per essere indipendenti dalla distanza dalla camera.
+# =============================================================================
+
+setup:
+  handedness: right          # tiratore destrimane
+  camera_side: left          # camera/PC a sinistra del tiratore (MVP)
+  feedback_language: it
+
+# --- 1. Inclinazione del busto sul piano sagittale (THEORY §2) ---------------
+# Angolo del vettore anca->spalla rispetto alla verticale.
+# Positivo = inclinato all'indietro (verso la camera-side dipende dall'assetto).
+# Una leggera inclinazione all'indietro è fisiologica; troppa è l'errore classico.
+torso_lean_back:
+  ideal_deg: 5.0
+  warn_deg: 12.0
+  bad_deg: 18.0
+  cue_bad: "Ti stai inclinando troppo all'indietro: raddrizza il busto, scarica la zona lombare."
+  cue_warn: "Leggera inclinazione all'indietro eccessiva."
+  theory: "THEORY §2 — errore classico del contrappeso pistola."
+
+# --- 2. Elevazione/tensione spalla armata (THEORY §3) ------------------------
+# Differenza di quota tra spalla armata e spalla libera, normalizzata su
+# larghezza spalle. Positivo = spalla armata più ALTA (shrug/contrattura).
+shoulder_elevation:
+  ideal_ratio: 0.0
+  warn_ratio: 0.08
+  bad_ratio: 0.15
+  cue_bad: "Spalla dell'arma alzata e contratta: abbassala e rilassala."
+  cue_warn: "Spalla un po' tesa, cerca di rilassarla."
+  # Spalla troppo cadente (struttura persa): valore fortemente negativo
+  drop_warn_ratio: -0.10
+  cue_drop: "Spalla troppo molle: perdi struttura, ritrova il tono."
+  theory: "THEORY §3 — spalla bassa e rilassata."
+
+# --- 3. Estensione del braccio armato (THEORY §3) ----------------------------
+# Angolo al gomito (spalla-gomito-polso). ~180 = esteso. Evitare blocco rigido
+# e flessione instabile.
+arm_extension:
+  ideal_deg: 178.0
+  warn_deg: 168.0     # sotto = braccio troppo flesso
+  bad_deg: 158.0
+  locked_deg: 185.0   # oltre (iperesteso) improbabile ma segnalabile
+  cue_bad: "Braccio troppo flesso: estendilo verso il bersaglio, fermo ma non bloccato."
+  cue_warn: "Estendi meglio il braccio."
+  theory: "THEORY §3 — braccio esteso, fermo, non ipercontratto."
+
+# --- 4. Allineamento del polso armato (THEORY §4) ----------------------------
+# Deviazione dell'angolo gomito-polso-mano dalla linea retta dell'avambraccio.
+wrist_alignment:
+  ideal_deg: 180.0
+  warn_deg: 165.0
+  bad_deg: 155.0
+  cue_bad: "Polso non allineato: bloccalo dritto con l'avambraccio."
+  cue_warn: "Attenzione all'allineamento del polso."
+  theory: "THEORY §4 — polso dritto e bloccato."
+
+# --- 5. Inclinazione/rotazione testa (THEORY §5) -----------------------------
+# Angolo della linea occhi (o orecchie) rispetto all'orizzonte.
+head_tilt:
+  ideal_deg: 0.0
+  warn_deg: 8.0
+  bad_deg: 15.0
+  cue_bad: "Testa inclinata: tienila eretta, occhi allineati alla mira."
+  cue_warn: "Testa leggermente inclinata."
+  theory: "THEORY §5 — testa eretta e ferma."
+
+# --- 6. Apertura dei piedi / stance (THEORY §2) ------------------------------
+# Distanza tra le caviglie normalizzata su larghezza spalle. ~1.0 = larghezza
+# spalle. Troppo stretto o troppo largo penalizzano.
+stance_width:
+  ideal_ratio: 1.0
+  narrow_warn_ratio: 0.75
+  narrow_bad_ratio: 0.55
+  wide_warn_ratio: 1.35
+  wide_bad_ratio: 1.6
+  cue_narrow: "Base troppo stretta: allarga i piedi verso la larghezza spalle."
+  cue_wide: "Base troppo larga: irrigidisce, avvicina leggermente i piedi."
+  theory: "THEORY §2 — piedi ~larghezza spalle."
+
+# --- 7. Bilanciamento del peso (THEORY §2) -----------------------------------
+# Offset orizzontale del baricentro (midpoint anche) rispetto al centro tra le
+# caviglie, normalizzato su larghezza spalle. ~0 = centrato.
+weight_balance:
+  ideal_offset: 0.0
+  warn_offset: 0.12
+  bad_offset: 0.22
+  cue_bad: "Peso sbilanciato su un piede: ridistribuisci uniformemente."
+  cue_warn: "Peso leggermente sbilanciato."
+  theory: "THEORY §2 — peso uniforme, baricentro davanti all'anca."
+
+# --- 8. Stabilità durante l'hold (THEORY §6) ---------------------------------
+# Jitter = deviazione standard della posizione dei keypoint chiave nella finestra
+# di hold, normalizzata su larghezza spalle. Soglie indicative (novizio vs elite).
+stability:
+  hold_window_sec: 2.0        # finestra su cui calcolare il jitter
+  wrist_jitter_warn: 0.020
+  wrist_jitter_bad: 0.040
+  sway_warn: 0.015            # oscillazione baricentro (midpoint anche/spalle)
+  sway_bad: 0.030
+  cue_bad: "Molta oscillazione in fase di mira: rilassa, respira, riduci la tensione del grip."
+  cue_warn: "Stabilità migliorabile."
+  theory: "THEORY §6 — jitter e sway, elite < novizi."
+
+# --- Rilevamento fase di HOLD / colpo (THEORY §6-7) --------------------------
+phases:
+  raise_min_arm_deg: 150.0    # braccio considerato 'sollevato/esteso'
+  hold_still_jitter: 0.03     # sotto questa soglia il polso è 'fermo'
+  hold_min_frames: 15         # frame consecutivi fermi per dichiarare HOLD
+  settle_release_gap_sec: 0.4 # pausa dopo hold per considerare un colpo concluso
