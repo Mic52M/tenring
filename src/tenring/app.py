@@ -29,6 +29,7 @@ from .analysis.rules import RuleEngine
 from .analysis.phases import HoldTracker
 from .analysis.session import summarize
 from .analysis.recorder import SessionRecorder
+from .analysis.arm import ArmSelector
 from .report import build_report
 from .ui import overlay
 
@@ -78,6 +79,7 @@ def main() -> None:
     win = "tenring"
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)
     recorder = SessionRecorder()
+    arm = ArmSelector(default=handedness)
     prev = time.time()
     fps = 0.0
 
@@ -97,7 +99,8 @@ def main() -> None:
                 frame = cv2.flip(frame, 1)
 
             pose = backend.process(frame)
-            m = compute(pose, handedness=handedness)
+            armed_side = arm.update(pose)
+            m = compute(pose, handedness=armed_side)
             findings = engine.evaluate(m)
             now = time.time()
             stability = tracker.update(m, now)
@@ -105,7 +108,8 @@ def main() -> None:
 
             overlay.draw_skeleton(frame, pose)
             overlay.draw_panel(frame, findings, stability, ref,
-                               fps=fps, n_shots=len(tracker.shots))
+                               fps=fps, n_shots=len(tracker.shots),
+                               armed_side=armed_side)
             overlay.draw_banner(frame, findings, stability)
 
             dt = now - prev

@@ -53,6 +53,7 @@ def draw_panel(
     ref: dict,
     fps: float = 0.0,
     n_shots: int = 0,
+    armed_side: str = "",
 ) -> None:
     h, w = frame.shape[:2]
     pw = 340
@@ -61,7 +62,12 @@ def draw_panel(
     y = 30
     cv2.putText(frame, "tenring — 10m air pistol", (12, y),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
-    y += 28
+    y += 22
+    if armed_side:
+        label = "destro" if armed_side == "right" else "sinistro"
+        cv2.putText(frame, f"Braccio arma: {label}", (12, y),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (150, 200, 255), 1, cv2.LINE_AA)
+    y += 22
 
     for fnd in findings:
         cv2.circle(frame, (20, y - 5), 7, fnd.color, -1)

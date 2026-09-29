@@ -31,9 +31,24 @@ class Metrics:
     body_center: Optional[tuple] = None
     shoulder_width: float = float("nan")
     quality: float = 0.0                    # mean visibility of key landmarks
+    armed_side: str = ""                    # 'left'/'right' actually used this frame
 
     def as_dict(self) -> dict:
         return asdict(self)
+
+
+def _seen(pose: PoseResult, idx: int, vmin: float = 0.6, margin: float = 0.02) -> bool:
+    """True only if a landmark is confidently detected AND inside the frame.
+
+    MediaPipe extrapolates off-screen joints with a moderate visibility score, so
+    visibility alone isn't enough: we also require the normalised image position
+    to be within the frame. This is what stops us from judging feet that aren't
+    actually in shot.
+    """
+    if pose.visibility[idx] < vmin:
+        return False
+    x, y = pose.image_xy[idx]
+    return margin <= x <= 1.0 - margin and margin <= y <= 1.0 - margin
 
 
 def _fold_tilt(raw: float) -> float:
@@ -70,21 +85,26 @@ def compute(pose: PoseResult, handedness: str = "right") -> Metrics:
     armed, free = _sides(handedness)
 
     m = Metrics()
+    m.armed_side = handedness
 
-    # --- body-scale reference ---
+    # --- body-scale reference (needs both shoulders) ---
+    if not (_seen(pose, KP.LEFT_SHOULDER, 0.5) and _seen(pose, KP.RIGHT_SHOULDER, 0.5)):
+        return m  # torso not framed -> nothing reliable this frame
     l_sh, r_sh = w[KP.LEFT_SHOULDER], w[KP.RIGHT_SHOULDER]
     sw = G.dist(l_sh, r_sh)
     m.shoulder_width = sw
     if sw < 1e-6:
         return m
 
+    hips_seen = _seen(pose, KP.LEFT_HIP, 0.5) and _seen(pose, KP.RIGHT_HIP, 0.5)
     l_hip, r_hip = w[KP.LEFT_HIP], w[KP.RIGHT_HIP]
     mid_hip = G.midpoint(l_hip, r_hip)
     mid_sh = G.midpoint(l_sh, r_sh)
-    m.body_center = tuple(mid_hip)
 
-    # --- 1. Torso lean (sagittal) — THEORY §2 ---
-    m.torso_lean = G.signed_lean_sagittal(mid_hip, mid_sh)
+    # --- 1. Torso lean (sagittal) — THEORY §2 (needs hips) ---
+    if hips_seen:
+        m.body_center = tuple(mid_hip)
+        m.torso_lean = G.signed_lean_sagittal(mid_hip, mid_sh)
 
     # --- 2. Shoulder elevation (shrug) — THEORY §3 ---
     # y points down: armed shoulder higher => smaller y => positive ratio.
@@ -92,40 +112,37 @@ def compute(pose: PoseResult, handedness: str = "right") -> Metrics:
     free_sh = w[free["shoulder"]]
     m.shoulder_elevation = float((free_sh[1] - armed_sh[1]) / sw)
 
-    # --- 3. Arm extension (elbow angle) — THEORY §3 ---
-    m.arm_extension = G.angle_at(
-        w[armed["shoulder"]], w[armed["elbow"]], w[armed["wrist"]]
-    )
-
-    # --- 4. Wrist alignment — THEORY §4 ---
-    m.wrist_alignment = G.angle_at(
-        w[armed["elbow"]], w[armed["wrist"]], w[armed["index"]]
-    )
+    # --- 3. Arm extension (elbow angle) — THEORY §3 (needs the armed arm) ---
+    if _seen(pose, armed["elbow"], 0.4) and _seen(pose, armed["wrist"], 0.4):
+        m.arm_extension = G.angle_at(
+            w[armed["shoulder"]], w[armed["elbow"]], w[armed["wrist"]]
+        )
+        # --- 4. Wrist alignment — THEORY §4 (needs wrist + hand) ---
+        if _seen(pose, armed["index"], 0.4):
+            m.wrist_alignment = G.angle_at(
+                w[armed["elbow"]], w[armed["wrist"]], w[armed["index"]]
+            )
+        # tracking point for stability
+        m.armed_wrist = tuple(w[armed["wrist"]])
 
     # --- 5. Head tilt (roll) — THEORY §5 ---
-    # Use eyes in image space (frontal plane roll); fall back to ears.
     # Fold the raw line angle into [-90, 90] so left/right point ordering
     # (e.g. under --mirror) can't turn a level line into ~180 deg.
-    if vis[KP.LEFT_EYE] > 0.3 and vis[KP.RIGHT_EYE] > 0.3:
+    if _seen(pose, KP.LEFT_EYE, 0.4) and _seen(pose, KP.RIGHT_EYE, 0.4):
         m.head_tilt = _fold_tilt(G.line_tilt_deg(img[KP.LEFT_EYE], img[KP.RIGHT_EYE]))
-    elif vis[KP.LEFT_EAR] > 0.3 and vis[KP.RIGHT_EAR] > 0.3:
+    elif _seen(pose, KP.LEFT_EAR, 0.4) and _seen(pose, KP.RIGHT_EAR, 0.4):
         m.head_tilt = _fold_tilt(G.line_tilt_deg(img[KP.LEFT_EAR], img[KP.RIGHT_EAR]))
 
-    # --- 6. Stance width — THEORY §2 ---
-    l_ank, r_ank = w[KP.LEFT_ANKLE], w[KP.RIGHT_ANKLE]
-    if vis[KP.LEFT_ANKLE] > 0.3 and vis[KP.RIGHT_ANKLE] > 0.3:
+    # --- 6+7. Stance width & weight balance — THEORY §2 ---
+    # ONLY if both feet are actually in frame (not extrapolated off-screen).
+    if hips_seen and _seen(pose, KP.LEFT_ANKLE) and _seen(pose, KP.RIGHT_ANKLE):
+        l_ank, r_ank = w[KP.LEFT_ANKLE], w[KP.RIGHT_ANKLE]
         m.stance_width = G.dist(l_ank, r_ank) / sw
-
-        # --- 7. Weight balance (hip vs ankle horizontal offset) — THEORY §2 ---
         mid_ank = G.midpoint(l_ank, r_ank)
         m.weight_balance = float((mid_hip[0] - mid_ank[0]) / sw)
 
-    # --- tracking point for stability ---
-    m.armed_wrist = tuple(w[armed["wrist"]])
-
-    # --- frame quality ---
-    key = [KP.LEFT_SHOULDER, KP.RIGHT_SHOULDER, KP.LEFT_HIP, KP.RIGHT_HIP,
-           armed["elbow"], armed["wrist"]]
+    # --- frame quality (only landmarks we rely on) ---
+    key = [KP.LEFT_SHOULDER, KP.RIGHT_SHOULDER, armed["elbow"], armed["wrist"]]
     m.quality = float(np.mean([vis[k] for k in key]))
 
     return m

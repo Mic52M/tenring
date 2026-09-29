@@ -9,7 +9,9 @@ from tenring import config as cfg
 def _neutral_pose(right_shoulder_y=-0.5):
     """Synthetic right-handed shooter, arm extended forward, upright."""
     w = np.zeros((NUM_KP, 3), dtype=np.float32)
-    img = np.zeros((NUM_KP, 2), dtype=np.float32)
+    # All landmarks default to mid-frame so the visibility/in-frame gate passes;
+    # specific ones (eyes) are set below for tilt.
+    img = np.full((NUM_KP, 2), 0.5, dtype=np.float32)
     vis = np.ones(NUM_KP, dtype=np.float32)
 
     w[KP.LEFT_SHOULDER] = (-0.2, -0.5, 0.0)
@@ -67,3 +69,32 @@ def test_rules_neutral_mostly_ok():
     findings = {f.key: f for f in engine.evaluate(m)}
     for key in ("shoulder_elevation", "arm_extension", "head_tilt", "stance_width"):
         assert findings[key].status in (Status.OK, Status.WARN)
+
+
+def test_feet_offscreen_not_evaluated():
+    # Ankles out of frame (image y > 1) must NOT be judged, even if MediaPipe
+    # reports them with high visibility (regression: feet graded when unseen).
+    import math
+    p = _neutral_pose()
+    p.image_xy[KP.LEFT_ANKLE] = (0.5, 1.15)
+    p.image_xy[KP.RIGHT_ANKLE] = (0.5, 1.15)
+    m = compute(p, handedness="right")
+    assert math.isnan(m.stance_width)
+    assert math.isnan(m.weight_balance)
+
+
+def test_arm_selector_picks_raised_arm():
+    from tenring.analysis.arm import ArmSelector
+    # Build a pose where the LEFT wrist is raised to shoulder height and the
+    # right hangs at the hip: selector must converge to 'left'.
+    p = _neutral_pose()
+    w = p.world_xyz
+    w[KP.LEFT_SHOULDER] = (-0.2, -0.5, 0.0)
+    w[KP.LEFT_ELBOW] = (-0.2, -0.5, -0.3)
+    w[KP.LEFT_WRIST] = (-0.2, -0.5, -0.6)   # raised & extended
+    w[KP.RIGHT_WRIST] = (0.15, 0.0, 0.0)    # hanging near hip
+    sel = ArmSelector(default="right")
+    side = "right"
+    for _ in range(40):
+        side = sel.update(p)
+    assert side == "left"

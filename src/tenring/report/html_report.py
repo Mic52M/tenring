@@ -183,6 +183,17 @@ def build_report(records: list, shots: list, summary, ref: dict,
         f'<li><b>{name}</b> — fuori tolleranza per il {pct}% del tempo</li>'
         for name, pct in top) or "<li>Nessun difetto rilevante 👌</li>"
 
+    # Metrics never reliably in frame -> not judged (honest reporting).
+    not_eval = [label for k, label in METRIC_LABELS.items() if k not in dist]
+    if not_eval:
+        noteval_html = ('<h2>Non valutato (fuori inquadratura)</h2>'
+                        '<p class="muted">Queste parti non erano ben inquadrate, '
+                        'quindi non sono state giudicate: <b>'
+                        + ", ".join(not_eval) + '</b>. '
+                        'Allarga l\'inquadratura per includerle.</p>')
+    else:
+        noteval_html = ""
+
     charts_html = "".join(
         f'<div class="card"><img src="data:image/png;base64,{b64}"/></div>'
         for _, b64 in charts)
@@ -191,7 +202,7 @@ def build_report(records: list, shots: list, summary, ref: dict,
         when=when, verdict=verdict, vcolor=vcolor, score=int(score),
         n_frames=len(records), n_shots=n_shots,
         mean_jit=("n/d" if mean_jit != mean_jit else f"{mean_jit:.4f}"),
-        top_html=top_html, charts_html=charts_html,
+        top_html=top_html, charts_html=charts_html, noteval_html=noteval_html,
         cons_rows=cons_rows or '<tr><td colspan="3">Nessun colpo rilevato</td></tr>',
     )
     out_path.write_text(html, encoding="utf-8")
@@ -239,6 +250,7 @@ tr:last-child td{{border-bottom:none}}
   <div class="stat"><div class="n">{mean_jit}</div><div class="l">tremore medio (hold)</div></div>
 </div>
 <h2>Su cosa lavorare</h2><ul>{top_html}</ul>
+{noteval_html}
 <h2>Grafici</h2>{charts_html}
 <h2>Ripetibilità colpo-su-colpo</h2>
 <table><tr><th>Metrica</th><th>Media</th><th>Dev. std (↓ meglio)</th></tr>{cons_rows}</table>

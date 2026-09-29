@@ -26,6 +26,7 @@ from . import config as cfg
 from . import capture
 from .pose.mediapipe_backend import MediaPipeBackend
 from .analysis.metrics import compute
+from .analysis.arm import ArmSelector
 
 
 NEUTRAL_KEYS = ["torso_lean", "shoulder_elevation", "arm_extension",
@@ -60,6 +61,7 @@ def main() -> None:
     win = "tenring — calibrazione"
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)
     buffers = {k: [] for k in NEUTRAL_KEYS}
+    arm = ArmSelector(default=handedness)
     start = None
 
     with MediaPipeBackend(model_complexity=2) as backend:
@@ -76,7 +78,7 @@ def main() -> None:
             if args.mirror:
                 frame = cv2.flip(frame, 1)
             pose = backend.process(frame)
-            m = compute(pose, handedness=handedness)
+            m = compute(pose, handedness=arm.update(pose))
 
             now = time.time()
             if start is None:
