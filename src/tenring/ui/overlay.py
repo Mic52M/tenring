@@ -54,6 +54,8 @@ def draw_panel(
     fps: float = 0.0,
     n_shots: int = 0,
     armed_side: str = "",
+    state_label: str = "",
+    aiming: bool = True,
 ) -> None:
     h, w = frame.shape[:2]
     pw = 340
@@ -63,19 +65,31 @@ def draw_panel(
     cv2.putText(frame, "tenring — 10m air pistol", (12, y),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
     y += 22
+    if state_label:
+        col = (120, 220, 140) if aiming else (0, 200, 255)
+        cv2.putText(frame, state_label, (12, y),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, col, 1, cv2.LINE_AA)
+    y += 20
     if armed_side:
         label = "destro" if armed_side == "right" else "sinistro"
         cv2.putText(frame, f"Braccio arma: {label}", (12, y),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.45, (150, 200, 255), 1, cv2.LINE_AA)
-    y += 22
+    y += 20
 
+    if not aiming:
+        cv2.putText(frame, "(analisi in pausa)", (12, y + 6),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (150, 150, 150), 1, cv2.LINE_AA)
+        y += 30
     for fnd in findings:
+        # When not aiming, only show measurable readings faintly (no cues).
+        if not aiming and fnd.status == Status.NA:
+            continue
         cv2.circle(frame, (20, y - 5), 7, fnd.color, -1)
         val = "n/d" if (isinstance(fnd.value, float) and np.isnan(fnd.value)) else f"{fnd.value:6.1f}"
         cv2.putText(frame, f"{fnd.label:<18} {val}", (36, y),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (240, 240, 240), 1, cv2.LINE_AA)
         y += 22
-        if fnd.status in (Status.WARN, Status.BAD) and fnd.cue:
+        if aiming and fnd.status in (Status.WARN, Status.BAD) and fnd.cue:
             for line in _wrap(fnd.cue, 40):
                 cv2.putText(frame, line, (36, y),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.42, fnd.color, 1, cv2.LINE_AA)
@@ -112,8 +126,28 @@ def draw_panel(
 
 
 def draw_banner(frame: np.ndarray, findings: list[Finding],
-                stability: Optional[Stability]) -> None:
-    """Big glanceable bar at the top: the single most important correction now."""
+                stability: Optional[Stability], aiming: bool = True,
+                state_label: str = "") -> None:
+    """Big glanceable bar at the top.
+
+    When not aiming: shows the state guidance (e.g. 'Mettiti in posizione'),
+    never a posture verdict. When aiming: the single most important correction,
+    or 'Postura OK'.
+    """
+    h, w = frame.shape[:2]
+    x0, bar_h = 350, 76
+    overlay_img = frame.copy()
+    cv2.rectangle(overlay_img, (x0, 0), (w, bar_h), (20, 20, 20), -1)
+    cv2.addWeighted(overlay_img, 0.75, frame, 0.25, 0, frame)
+
+    if not aiming:
+        color = (0, 200, 255)
+        cv2.rectangle(frame, (x0, 0), (x0 + 8, bar_h), color, -1)
+        for i, line in enumerate(_wrap(state_label or "In attesa...", 40)[:2]):
+            cv2.putText(frame, line, (x0 + 24, 32 + i * 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2, cv2.LINE_AA)
+        return
+
     worst = None
     for f in findings:
         if f.status == Status.BAD and f.cue:
@@ -125,14 +159,8 @@ def draw_banner(frame: np.ndarray, findings: list[Finding],
                 worst = f
                 break
 
-    h, w = frame.shape[:2]
-    x0, bar_h = 350, 76
-    overlay_img = frame.copy()
     color = worst.color if worst else (80, 200, 80)
-    cv2.rectangle(overlay_img, (x0, 0), (w, bar_h), (20, 20, 20), -1)
-    cv2.addWeighted(overlay_img, 0.75, frame, 0.25, 0, frame)
     cv2.rectangle(frame, (x0, 0), (x0 + 8, bar_h), color, -1)  # colored edge
-
     if worst is None:
         cv2.putText(frame, "Postura OK", (x0 + 24, 48),
                     cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2, cv2.LINE_AA)

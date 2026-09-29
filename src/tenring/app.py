@@ -26,7 +26,7 @@ from . import capture
 from .pose.mediapipe_backend import MediaPipeBackend
 from .analysis.metrics import compute
 from .analysis.rules import RuleEngine
-from .analysis.phases import HoldTracker
+from .analysis.state import StateMachine
 from .analysis.session import summarize
 from .analysis.recorder import SessionRecorder
 from .analysis.arm import ArmSelector
@@ -66,7 +66,7 @@ def main() -> None:
     cam_index = args.camera if args.camera >= 0 else capture.autodetect()
     cap = capture.open_camera(cam_index, args.width, args.height)
     fps_guess = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    tracker = HoldTracker(ref, fps=fps_guess if fps_guess > 1 else 30.0)
+    sm = StateMachine(ref, fps=fps_guess if fps_guess > 1 else 30.0)
 
     print(f"[tenring] webcam {cam_index} aperta. Premi Q (o ESC) per uscire, "
           "S per salvare il resoconto.")
@@ -103,14 +103,19 @@ def main() -> None:
             m = compute(pose, handedness=armed_side)
             findings = engine.evaluate(m)
             now = time.time()
-            stability = tracker.update(m, now)
-            recorder.add(now, m, findings, stability)
+            fs = sm.update(m, now)
+
+            # Record/report ONLY when actually in the aiming position.
+            if fs.is_aiming:
+                recorder.add(now, m, findings, fs)
 
             overlay.draw_skeleton(frame, pose)
-            overlay.draw_panel(frame, findings, stability, ref,
-                               fps=fps, n_shots=len(tracker.shots),
-                               armed_side=armed_side)
-            overlay.draw_banner(frame, findings, stability)
+            overlay.draw_panel(frame, findings, fs, ref,
+                               fps=fps, n_shots=len(sm.shots),
+                               armed_side=armed_side,
+                               state_label=fs.label, aiming=fs.is_aiming)
+            overlay.draw_banner(frame, findings, fs,
+                                aiming=fs.is_aiming, state_label=fs.label)
 
             dt = now - prev
             prev = now
@@ -122,21 +127,23 @@ def main() -> None:
             if key in (ord("q"), 27):
                 break
             if key == ord("s"):
-                _save_session(tracker, recorder, ref)
+                _save_session(sm, recorder, ref)
 
     cap.release()
     cv2.destroyAllWindows()
-    _save_session(tracker, recorder, ref, final=True)
+    _save_session(sm, recorder, ref, final=True)
 
 
-def _save_session(tracker: HoldTracker, recorder: SessionRecorder, ref: dict,
+def _save_session(sm: StateMachine, recorder: SessionRecorder, ref: dict,
                   final: bool = False) -> None:
     if len(recorder) == 0:
         if final:
-            print("[tenring] nessun dato registrato (corpo non rilevato).")
+            print("[tenring] nessun frame in posizione di tiro: "
+                  "niente da analizzare (assicurati di metterti in posizione "
+                  "con il braccio alzato, corpo inquadrato).")
         return
 
-    summary = summarize(tracker.shots)
+    summary = summarize(sm.shots)
     out = Path(cfg._ROOT) / "sessions"
     out.mkdir(exist_ok=True)
     stamp = time.strftime("%Y%m%d_%H%M%S")
@@ -152,7 +159,7 @@ def _save_session(tracker: HoldTracker, recorder: SessionRecorder, ref: dict,
 
     # HTML report + open it
     html_path = out / f"session_{stamp}.html"
-    build_report(recorder.frames, tracker.shots, summary, ref, html_path, when=when)
+    build_report(recorder.frames, sm.shots, summary, ref, html_path, when=when)
     print(f"[tenring] report: {html_path}")
     try:
         import webbrowser

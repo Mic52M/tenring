@@ -246,7 +246,7 @@ tr:last-child td{{border-bottom:none}}
 </div>
 <div class="grid">
   <div class="stat"><div class="n">{n_shots}</div><div class="l">colpi rilevati</div></div>
-  <div class="stat"><div class="n">{n_frames}</div><div class="l">frame analizzati</div></div>
+  <div class="stat"><div class="n">{n_frames}</div><div class="l">frame in posizione</div></div>
   <div class="stat"><div class="n">{mean_jit}</div><div class="l">tremore medio (hold)</div></div>
 </div>
 <h2>Su cosa lavorare</h2><ul>{top_html}</ul>

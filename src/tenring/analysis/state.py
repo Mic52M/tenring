@@ -1,0 +1,198 @@
+"""Shooting-cycle state machine — the 'intelligence' about WHEN to analyse.
+
+The app must not average posture over moments the shooter isn't actually aiming
+(walking in, drinking water, only the face in frame, reloading). This classifies
+each frame into a state and only treats AIMING/HOLD as analysable. A shot is
+detected as the natural cycle: raise the arm -> steady hold -> lower the arm.
+
+States:
+    IDLE   : no reliable body / torso not in frame          -> not analysed
+    READY  : person present & torso framed, but not aiming   -> not analysed
+    AIMING : armed arm raised to ~shoulder height & extended -> ANALYSED
+    HOLD   : AIMING and the wrist is still                    -> ANALYSED
+
+Replaces the old HoldTracker: it owns both the stability (jitter/sway) buffers
+and the shot detection, now gated on real arm raise/lower transitions.
+"""
+from __future__ import annotations
+
+from collections import deque
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Optional
+
+import numpy as np
+
+from .metrics import Metrics
+from .phases import ShotEvent
+
+
+class State(str, Enum):
+    IDLE = "IDLE"
+    READY = "READY"
+    AIMING = "AIMING"
+    HOLD = "HOLD"
+
+
+_LABEL = {
+    State.IDLE: "In attesa (corpo non inquadrato)",
+    State.READY: "Mettiti in posizione di tiro",
+    State.AIMING: "In posizione — analisi attiva",
+    State.HOLD: "HOLD (in mira, fermo)",
+}
+
+
+@dataclass
+class FrameState:
+    state: State = State.IDLE
+    # Fields named to be drop-in for overlay/recorder that read a 'stability'.
+    in_hold: bool = False
+    wrist_jitter: float = float("nan")
+    sway: float = float("nan")
+    hold_frames: int = 0
+
+    @property
+    def is_aiming(self) -> bool:
+        return self.state in (State.AIMING, State.HOLD)
+
+    @property
+    def label(self) -> str:
+        return _LABEL[self.state]
+
+
+class StateMachine:
+    def __init__(self, ref: dict, fps: float = 30.0) -> None:
+        s = ref["state"]
+        p = ref["phases"]
+        st = ref["stability"]
+        self.aim_raise_min = s["aim_raise_min"]
+        self.aim_arm_min = s["aim_arm_min_deg"]
+        self.down_raise_max = s["down_raise_max"]
+        self.enter_aim = s["enter_aim_frames"]
+        self.exit_aim = s["exit_aim_frames"]
+        self.hold_still_jitter = p["hold_still_jitter"]
+        self.hold_min_frames = p["hold_min_frames"]
+        self.window = max(1, int(st["hold_window_sec"] * fps))
+
+        self._wrist: deque = deque(maxlen=self.window)
+        self._center: deque = deque(maxlen=self.window)
+        self._sw: deque = deque(maxlen=self.window)
+        self._metric_buf: deque = deque(maxlen=self.window)
+
+        self.state = State.IDLE
+        self._aim_run = 0        # consecutive 'looks like aiming' frames
+        self._down_run = 0       # consecutive 'arm down' frames
+        self._hold_frames = 0
+        # per-attempt (one raise->lower cycle)
+        self._attempt_active = False
+        self._hold_achieved = False
+        self._best_jitter = float("inf")
+        self._best_sway = float("nan")
+        self.shots: list[ShotEvent] = []
+
+    # -- helpers ---------------------------------------------------------------
+    def _looks_aiming(self, m: Metrics) -> bool:
+        return (m.torso_seen
+                and np.isfinite(m.arm_raise) and m.arm_raise >= self.aim_raise_min
+                and np.isfinite(m.arm_extension) and m.arm_extension >= self.aim_arm_min)
+
+    def _arm_down(self, m: Metrics) -> bool:
+        return np.isfinite(m.arm_raise) and m.arm_raise <= self.down_raise_max
+
+    # -- main ------------------------------------------------------------------
+    def update(self, m: Metrics, t: float) -> FrameState:
+        fs = FrameState()
+
+        # No reliable torso at all -> IDLE, abandon any attempt.
+        if not m.torso_seen or not np.isfinite(m.shoulder_width):
+            self._to_idle()
+            fs.state = self.state
+            return fs
+
+        # stability buffers (only meaningful with a tracked wrist)
+        jitter = sway = float("nan")
+        if m.armed_wrist is not None and m.body_center is not None:
+            self._wrist.append(np.asarray(m.armed_wrist, float))
+            self._center.append(np.asarray(m.body_center, float))
+            self._sw.append(m.shoulder_width)
+            self._metric_buf.append(m)
+            if len(self._wrist) >= max(3, self.window // 2):
+                sw = float(np.median(self._sw)) or 1.0
+                jitter = float(np.linalg.norm(np.std(np.stack(self._wrist), axis=0))) / sw
+                sway = float(np.linalg.norm(np.std(np.stack(self._center), axis=0))) / sw
+
+        aiming = self._looks_aiming(m)
+        down = self._arm_down(m)
+        self._aim_run = self._aim_run + 1 if aiming else 0
+        self._down_run = self._down_run + 1 if down else 0
+
+        # --- state transitions ---
+        if self.state in (State.IDLE, State.READY):
+            self.state = State.READY
+            if self._aim_run >= self.enter_aim:
+                self.state = State.AIMING
+                self._start_attempt()
+        elif self.state in (State.AIMING, State.HOLD):
+            # still holding?
+            still = np.isfinite(jitter) and jitter <= self.hold_still_jitter
+            self._hold_frames = self._hold_frames + 1 if still else 0
+            if self._hold_frames >= self.hold_min_frames:
+                self.state = State.HOLD
+                self._hold_achieved = True
+                if np.isfinite(jitter) and jitter < self._best_jitter:
+                    self._best_jitter = jitter
+                    self._best_sway = sway
+            else:
+                self.state = State.AIMING
+            # arm lowered -> shot taken (if a real hold happened)
+            if self._down_run >= self.exit_aim:
+                self._end_attempt(t)
+                self.state = State.READY
+
+        fs.state = self.state
+        fs.in_hold = self.state == State.HOLD
+        fs.wrist_jitter = jitter
+        fs.sway = sway
+        fs.hold_frames = self._hold_frames
+        return fs
+
+    # -- attempt bookkeeping ---------------------------------------------------
+    def _start_attempt(self) -> None:
+        self._attempt_active = True
+        self._hold_achieved = False
+        self._hold_frames = 0
+        self._best_jitter = float("inf")
+        self._best_sway = float("nan")
+
+    def _end_attempt(self, t: float) -> None:
+        if self._attempt_active and self._hold_achieved:
+            self._register_shot(t)
+        self._attempt_active = False
+        self._hold_achieved = False
+        self._hold_frames = 0
+
+    def _register_shot(self, t: float) -> None:
+        keys = ["torso_lean", "shoulder_elevation", "arm_extension",
+                "wrist_alignment", "head_tilt", "stance_width", "weight_balance"]
+        means = {}
+        for k in keys:
+            vals = [getattr(mm, k) for mm in self._metric_buf
+                    if np.isfinite(getattr(mm, k))]
+            means[k] = float(np.mean(vals)) if vals else float("nan")
+        self.shots.append(ShotEvent(
+            t_end=t,
+            wrist_jitter=(self._best_jitter if self._best_jitter != float("inf")
+                          else float("nan")),
+            sway=self._best_sway,
+            duration=self.window,
+            metrics_mean=means,
+        ))
+
+    def _to_idle(self) -> None:
+        # torso lost: if we were mid-hold, don't count a phantom shot.
+        self.state = State.IDLE
+        self._aim_run = 0
+        self._down_run = 0
+        self._hold_frames = 0
+        self._attempt_active = False
+        self._hold_achieved = False

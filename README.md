@@ -54,8 +54,12 @@ apre la finestra, premi **Q** per uscire.
 tenring
 ```
 
+- **Analizza solo quando sei in posizione**: una macchina a stati riconosce il ciclo
+  di tiro (in attesa → in posizione → mira/HOLD → colpo) e valuta/registra **solo**
+  in fase di mira. Se ti muovi, bevi, o si vede solo il viso, l'analisi va in pausa
+  (niente più "postura perfetta" senza senso).
 - **Banner grande in alto**: la correzione più importante in quel momento (leggibile
-  mentre miri); pannello a sinistra: semaforo + cue per ogni metrica.
+  mentre miri); pannello a sinistra: stato, braccio rilevato, semaforo + cue.
 - `q` (o ESC) esce e **apre da solo un report HTML** con verdetto, difetti su cui
   lavorare, grafici (timeline, distribuzione difetti, stabilità) e ripetibilità
   colpo-su-colpo; `s` genera un report al volo.
@@ -109,6 +113,10 @@ pytest
 - [x] Report HTML di sessione con grafici (timeline, distribuzione difetti,
       stabilità, ripetibilità).
 - [x] Banner live con la correzione prioritaria.
+- [x] Macchina a stati del ciclo di tiro (analizza solo in posizione; colpo =
+      alza → hold → abbassa il braccio).
+- [x] Auto-rilevamento braccio che spara + gating visibilità (valuta solo ciò
+      che è inquadrato).
 - [ ] Fase 2: **seconda camera** (telefono frontale/posteriore) per quadratura
       spalle e rotazione busto — fusione multi-vista.
 - [ ] Rilevamento del colpo più robusto (audio dello scatto / marcatura manuale).

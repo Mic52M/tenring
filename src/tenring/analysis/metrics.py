@@ -32,6 +32,8 @@ class Metrics:
     shoulder_width: float = float("nan")
     quality: float = 0.0                    # mean visibility of key landmarks
     armed_side: str = ""                    # 'left'/'right' actually used this frame
+    arm_raise: float = float("nan")         # armed-wrist height: 0=at hip, 1=at shoulder
+    torso_seen: bool = False                # shoulders+hips reliably in frame
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -66,11 +68,11 @@ def _sides(handedness: str):
     """Return (armed, free) landmark index groups for the given handedness."""
     if handedness == "right":
         armed = dict(shoulder=KP.RIGHT_SHOULDER, elbow=KP.RIGHT_ELBOW,
-                     wrist=KP.RIGHT_WRIST, index=KP.RIGHT_INDEX)
+                     wrist=KP.RIGHT_WRIST, index=KP.RIGHT_INDEX, hip=KP.RIGHT_HIP)
         free = dict(shoulder=KP.LEFT_SHOULDER)
     else:
         armed = dict(shoulder=KP.LEFT_SHOULDER, elbow=KP.LEFT_ELBOW,
-                     wrist=KP.LEFT_WRIST, index=KP.LEFT_INDEX)
+                     wrist=KP.LEFT_WRIST, index=KP.LEFT_INDEX, hip=KP.LEFT_HIP)
         free = dict(shoulder=KP.RIGHT_SHOULDER)
     return armed, free
 
@@ -97,6 +99,7 @@ def compute(pose: PoseResult, handedness: str = "right") -> Metrics:
         return m
 
     hips_seen = _seen(pose, KP.LEFT_HIP, 0.5) and _seen(pose, KP.RIGHT_HIP, 0.5)
+    m.torso_seen = hips_seen
     l_hip, r_hip = w[KP.LEFT_HIP], w[KP.RIGHT_HIP]
     mid_hip = G.midpoint(l_hip, r_hip)
     mid_sh = G.midpoint(l_sh, r_sh)
@@ -117,6 +120,13 @@ def compute(pose: PoseResult, handedness: str = "right") -> Metrics:
         m.arm_extension = G.angle_at(
             w[armed["shoulder"]], w[armed["elbow"]], w[armed["wrist"]]
         )
+        # How raised the armed wrist is: 0 = at hip level, 1 = at shoulder level.
+        # (y points down: hip_y > shoulder_y.)
+        sh_y = w[armed["shoulder"]][1]
+        hip_y = w[armed["hip"]][1]
+        denom = hip_y - sh_y
+        if abs(denom) > 1e-6:
+            m.arm_raise = float((hip_y - w[armed["wrist"]][1]) / denom)
         # --- 4. Wrist alignment — THEORY §4 (needs wrist + hand) ---
         if _seen(pose, armed["index"], 0.4):
             m.wrist_alignment = G.angle_at(

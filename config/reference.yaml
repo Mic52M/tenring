@@ -116,3 +116,14 @@ phases:
   hold_still_jitter: 0.03     # sotto questa soglia il polso è 'fermo'
   hold_min_frames: 15         # frame consecutivi fermi per dichiarare HOLD
   settle_release_gap_sec: 0.4 # pausa dopo hold per considerare un colpo concluso
+
+# --- Macchina a stati del ciclo di tiro --------------------------------------
+# Determina QUANDO analizzare: solo in posizione di mira (AIMING/HOLD).
+# 'arm_raise' = altezza del polso armato: 0 = all'anca, 1 = alla spalla.
+state:
+  aim_raise_min: 0.60         # polso ~a livello spalla -> braccio in mira
+  aim_arm_min_deg: 140.0      # gomito abbastanza esteso -> in mira
+  down_raise_max: 0.35        # polso ridisceso verso l'anca -> braccio abbassato
+  enter_aim_frames: 5         # frame consecutivi 'in mira' per entrare in AIMING
+  exit_aim_frames: 6          # frame consecutivi 'giù/non in mira' per uscire
+  # Un COLPO = braccio alzato -> hold stabile -> braccio abbassato.
