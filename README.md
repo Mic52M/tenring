@@ -37,7 +37,10 @@ cd ~/Documents/tenring
 conda create -n tenring python=3.12 -y
 conda activate tenring
 pip install -r requirements.txt
+pip install -e .          # installa il package `tenring` (necessario per `python -m tenring.*`)
 ```
+
+> In alternativa a `pip install -e .`, puoi lanciare con `PYTHONPATH=src python -m tenring.app`.
 
 Concedi al terminale l'accesso alla fotocamera:
 **Impostazioni di sistema → Privacy e sicurezza → Fotocamera**.
