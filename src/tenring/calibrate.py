@@ -18,6 +18,7 @@ import cv2
 import numpy as np
 
 from . import config as cfg
+from . import capture
 from .pose.mediapipe_backend import MediaPipeBackend
 from .analysis.metrics import compute
 
@@ -29,16 +30,20 @@ NEUTRAL_KEYS = ["torso_lean", "shoulder_elevation", "arm_extension",
 def main() -> None:
     ap = argparse.ArgumentParser(description="tenring — calibrazione posturale personale")
     ap.add_argument("--camera", type=int, default=0)
+    ap.add_argument("--list-cameras", action="store_true",
+                    help="elenca le camere disponibili ed esci")
     ap.add_argument("--seconds", type=float, default=6.0)
     ap.add_argument("--mirror", action="store_true")
     args = ap.parse_args()
 
+    if args.list_cameras:
+        capture.print_cameras()
+        return
+
     ref = cfg.load_reference()
     handedness = ref["setup"]["handedness"]
 
-    cap = cv2.VideoCapture(args.camera)
-    if not cap.isOpened():
-        raise SystemExit(f"Impossibile aprire la camera {args.camera}.")
+    cap = capture.open_camera(args.camera)
 
     print(f"[calibrate] Mettiti nella tua posizione di tiro ottimale.")
     print(f"[calibrate] Raccolgo per {args.seconds:.0f}s dopo il conto alla rovescia...")
@@ -49,10 +54,16 @@ def main() -> None:
     start = None
 
     with MediaPipeBackend(model_complexity=2) as backend:
+        empty_reads = 0
         while True:
             ok, frame = cap.read()
-            if not ok:
-                break
+            if not ok or frame is None:
+                empty_reads += 1
+                if empty_reads > 90:
+                    break
+                cv2.waitKey(10)
+                continue
+            empty_reads = 0
             if args.mirror:
                 frame = cv2.flip(frame, 1)
             pose = backend.process(frame)
@@ -70,10 +81,11 @@ def main() -> None:
                 cv2.putText(frame, str(cd), (frame.shape[1] // 2, frame.shape[0] // 2),
                             cv2.FONT_HERSHEY_SIMPLEX, 3.0, (0, 220, 255), 4)
             elif now < start + args.seconds:
-                for k in NEUTRAL_KEYS:
-                    v = getattr(m, k)
-                    if np.isfinite(v):
-                        buffers[k].append(v)
+                if m.quality > 0.5:  # only record well-detected frames
+                    for k in NEUTRAL_KEYS:
+                        v = getattr(m, k)
+                        if np.isfinite(v):
+                            buffers[k].append(v)
                 remaining = start + args.seconds - now
                 cv2.putText(frame, f"REGISTRO... {remaining:3.1f}s", (30, 60),
                             cv2.FONT_HERSHEY_SIMPLEX, 1.0, (80, 220, 80), 2)

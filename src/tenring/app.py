@@ -18,6 +18,7 @@ from pathlib import Path
 import cv2
 
 from . import config as cfg
+from . import capture
 from .pose.mediapipe_backend import MediaPipeBackend
 from .analysis.metrics import compute
 from .analysis.rules import RuleEngine
@@ -29,6 +30,8 @@ from .ui import overlay
 def parse_args():
     ap = argparse.ArgumentParser(description="tenring — 10m air pistol posture coach")
     ap.add_argument("--camera", type=int, default=0, help="camera index")
+    ap.add_argument("--list-cameras", action="store_true",
+                    help="elenca le camere disponibili ed esci")
     ap.add_argument("--mirror", action="store_true", help="flip frame horizontally")
     ap.add_argument("--width", type=int, default=1280)
     ap.add_argument("--height", type=int, default=720)
@@ -39,20 +42,17 @@ def parse_args():
 
 def main() -> None:
     args = parse_args()
+    if args.list_cameras:
+        capture.print_cameras()
+        return
+
     ref = cfg.load_reference()
     profile = cfg.load_profile()
     handedness = ref["setup"]["handedness"]
 
     engine = RuleEngine(ref, profile)
 
-    cap = cv2.VideoCapture(args.camera)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
-    if not cap.isOpened():
-        raise SystemExit(f"Impossibile aprire la camera {args.camera}. "
-                         "Su macOS concedi l'accesso camera al terminale in "
-                         "Impostazioni > Privacy e sicurezza > Fotocamera.")
-
+    cap = capture.open_camera(args.camera, args.width, args.height)
     fps_guess = cap.get(cv2.CAP_PROP_FPS) or 30.0
     tracker = HoldTracker(ref, fps=fps_guess if fps_guess > 1 else 30.0)
 
@@ -67,11 +67,18 @@ def main() -> None:
     prev = time.time()
     fps = 0.0
 
+    empty_reads = 0
     with MediaPipeBackend(model_complexity=args.complexity) as backend:
         while True:
             ok, frame = cap.read()
-            if not ok:
-                break
+            if not ok or frame is None:
+                empty_reads += 1
+                if empty_reads > 90:  # ~3s of failures -> give up
+                    print("[tenring] la camera ha smesso di fornire immagini.")
+                    break
+                cv2.waitKey(10)
+                continue
+            empty_reads = 0
             if args.mirror:
                 frame = cv2.flip(frame, 1)
 

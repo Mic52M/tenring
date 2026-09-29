@@ -50,6 +50,16 @@ def test_rules_flag_shrug():
     assert findings["shoulder_elevation"].status == Status.BAD
 
 
+def test_head_tilt_robust_to_mirror_swap():
+    # Level eye line but points in reversed (mirrored) order must still read ~0,
+    # not ~180. Regression for head_tilt=111 bug seen with --mirror.
+    p = _neutral_pose()
+    p.image_xy[KP.LEFT_EYE] = (0.52, 0.20)   # swapped x order
+    p.image_xy[KP.RIGHT_EYE] = (0.48, 0.20)
+    m = compute(p, handedness="right")
+    assert abs(m.head_tilt) < 3
+
+
 def test_rules_neutral_mostly_ok():
     ref = cfg.load_reference()
     engine = RuleEngine(ref, profile=None)

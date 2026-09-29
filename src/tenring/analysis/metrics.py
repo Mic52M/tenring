@@ -36,6 +36,17 @@ class Metrics:
         return asdict(self)
 
 
+def _fold_tilt(raw: float) -> float:
+    """Fold a line angle (deg) into [-90, 90], i.e. deviation from horizontal.
+
+    A horizontal line reads ~0 or ~180 depending on point order; both mean 'level'.
+    Returns the signed roll magnitude, direction-agnostic to point ordering.
+    """
+    if raw != raw:  # NaN
+        return raw
+    return ((raw + 90.0) % 180.0) - 90.0
+
+
 def _sides(handedness: str):
     """Return (armed, free) landmark index groups for the given handedness."""
     if handedness == "right":
@@ -93,10 +104,12 @@ def compute(pose: PoseResult, handedness: str = "right") -> Metrics:
 
     # --- 5. Head tilt (roll) — THEORY §5 ---
     # Use eyes in image space (frontal plane roll); fall back to ears.
+    # Fold the raw line angle into [-90, 90] so left/right point ordering
+    # (e.g. under --mirror) can't turn a level line into ~180 deg.
     if vis[KP.LEFT_EYE] > 0.3 and vis[KP.RIGHT_EYE] > 0.3:
-        m.head_tilt = abs(G.line_tilt_deg(img[KP.LEFT_EYE], img[KP.RIGHT_EYE]))
+        m.head_tilt = _fold_tilt(G.line_tilt_deg(img[KP.LEFT_EYE], img[KP.RIGHT_EYE]))
     elif vis[KP.LEFT_EAR] > 0.3 and vis[KP.RIGHT_EAR] > 0.3:
-        m.head_tilt = abs(G.line_tilt_deg(img[KP.LEFT_EAR], img[KP.RIGHT_EAR]))
+        m.head_tilt = _fold_tilt(G.line_tilt_deg(img[KP.LEFT_EAR], img[KP.RIGHT_EAR]))
 
     # --- 6. Stance width — THEORY §2 ---
     l_ank, r_ank = w[KP.LEFT_ANKLE], w[KP.RIGHT_ANKLE]
