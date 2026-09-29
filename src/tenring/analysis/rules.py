@@ -54,6 +54,20 @@ class RuleEngine:
     def _neutral(self, key: str, default: float) -> float:
         return float(self.profile.get("neutral", {}).get(key, default))
 
+    def _has_neutral(self, key: str) -> bool:
+        return key in self.profile.get("neutral", {})
+
+    def _eval_symmetric_dev(self, key: str, label: str, value: float,
+                            c: dict) -> Finding:
+        """Evaluate |value - calibrated_neutral| against dev_warn/dev_bad."""
+        neutral = self._neutral(key, 0.0)
+        dev = abs(value - neutral)
+        if dev >= c["dev_bad"]:
+            return Finding(key, label, value, Status.BAD, c["cue_bad"])
+        if dev >= c["dev_warn"]:
+            return Finding(key, label, value, Status.WARN, c["cue_warn"])
+        return Finding(key, label, value, Status.OK)
+
     @staticmethod
     def _band(dev: float, warn: float, bad: float, cue_warn: str, cue_bad: str):
         if dev >= bad:
@@ -83,16 +97,29 @@ class RuleEngine:
             f.append(Finding("shoulder_elevation", "Spalla arma", float("nan"), Status.NA))
         else:
             v = m.shoulder_elevation
-            if v <= c["drop_warn_ratio"]:
+            if self._has_neutral("shoulder_elevation"):
+                dev = v - self._neutral("shoulder_elevation", 0.0)  # signed
+                if dev >= c["dev_bad"]:
+                    st, cue = Status.BAD, c["cue_bad"]
+                elif dev >= c["dev_warn"]:
+                    st, cue = Status.WARN, c["cue_warn"]
+                elif dev <= -c["dev_warn"]:
+                    st, cue = Status.WARN, c["cue_drop"]
+                else:
+                    st, cue = Status.OK, ""
+            elif v <= c["drop_warn_ratio"]:
                 st, cue = Status.WARN, c["cue_drop"]
             else:
                 st, cue = self._band(v, c["warn_ratio"], c["bad_ratio"], c["cue_warn"], c["cue_bad"])
             f.append(Finding("shoulder_elevation", "Spalla arma", v, st, cue))
 
-        # 3. Arm extension — too flexed (low angle) is the error.
+        # 3. Arm extension — deviation from your neutral, else absolute (too flexed).
         c = r["arm_extension"]
         if _isnan(m.arm_extension):
             f.append(Finding("arm_extension", "Estensione braccio", float("nan"), Status.NA))
+        elif self._has_neutral("arm_extension"):
+            f.append(self._eval_symmetric_dev("arm_extension", "Estensione braccio",
+                                              m.arm_extension, c))
         else:
             v = m.arm_extension
             if v <= c["bad_deg"]:
@@ -103,10 +130,13 @@ class RuleEngine:
                 st, cue = Status.OK, ""
             f.append(Finding("arm_extension", "Estensione braccio", v, st, cue))
 
-        # 4. Wrist alignment — deviation below straight line.
+        # 4. Wrist alignment — deviation from your neutral, else absolute.
         c = r["wrist_alignment"]
         if _isnan(m.wrist_alignment):
             f.append(Finding("wrist_alignment", "Polso", float("nan"), Status.NA))
+        elif self._has_neutral("wrist_alignment"):
+            f.append(self._eval_symmetric_dev("wrist_alignment", "Polso",
+                                              m.wrist_alignment, c))
         else:
             v = m.wrist_alignment
             if v <= c["bad_deg"]:
@@ -117,10 +147,12 @@ class RuleEngine:
                 st, cue = Status.OK, ""
             f.append(Finding("wrist_alignment", "Polso", v, st, cue))
 
-        # 5. Head tilt — absolute roll from horizontal.
+        # 5. Head tilt — deviation from your neutral, else absolute roll.
         c = r["head_tilt"]
         if _isnan(m.head_tilt):
             f.append(Finding("head_tilt", "Testa", float("nan"), Status.NA))
+        elif self._has_neutral("head_tilt"):
+            f.append(self._eval_symmetric_dev("head_tilt", "Testa", m.head_tilt, c))
         else:
             st, cue = self._band(abs(m.head_tilt), c["warn_deg"], c["bad_deg"],
                                  c["cue_warn"], c["cue_bad"])

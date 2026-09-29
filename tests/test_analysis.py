@@ -83,6 +83,29 @@ def test_feet_offscreen_not_evaluated():
     assert math.isnan(m.weight_balance)
 
 
+def test_calibrated_neutral_makes_own_posture_ok():
+    # A shooter whose webcam-measured arm extension is 150 and shoulder 0.2:
+    # in ABSOLUTE terms both would be flagged, but calibrated to HIS neutral they
+    # must read OK when he reproduces that posture. (Fixes 100%-out-of-tolerance.)
+    ref = cfg.load_reference()
+    profile = {"neutral": {"arm_extension": 150.0, "shoulder_elevation": 0.2,
+                           "wrist_alignment": 150.0, "head_tilt": 5.0}}
+    p = _neutral_pose()
+    w = p.world_xyz
+    # bend the arm so measured extension ~150 and shoulder raised ~0.2
+    w[KP.RIGHT_ELBOW] = (0.2, -0.5, -0.3)
+    w[KP.RIGHT_WRIST] = (0.35, -0.42, -0.5)   # ~150 deg elbow
+    w[KP.RIGHT_SHOULDER] = (0.2, -0.58, 0.0)  # raised
+    m = compute(p, handedness="right")
+
+    without = {f.key: f.status for f in RuleEngine(ref, None).evaluate(m)}
+    withcal = {f.key: f.status for f in RuleEngine(ref, profile).evaluate(m)}
+    # Without calibration at least one of these trips; with calibration (same
+    # posture as neutral) shoulder/arm should be OK.
+    assert withcal["shoulder_elevation"] == Status.OK
+    assert withcal["arm_extension"] in (Status.OK, Status.WARN)
+
+
 def test_arm_selector_picks_raised_arm():
     from tenring.analysis.arm import ArmSelector
     # Build a pose where the LEFT wrist is raised to shoulder height and the

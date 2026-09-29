@@ -118,8 +118,14 @@ class StateMachine:
             self._metric_buf.append(m)
             if len(self._wrist) >= max(3, self.window // 2):
                 sw = float(np.median(self._sw)) or 1.0
-                jitter = float(np.linalg.norm(np.std(np.stack(self._wrist), axis=0))) / sw
-                sway = float(np.linalg.norm(np.std(np.stack(self._center), axis=0))) / sw
+                # Use only the image-plane (x, y): with a single camera the depth
+                # (z) is noisy, so we measure the tremor we can actually trust.
+                # NOTE: this captures vertical + lateral wobble in the camera
+                # plane; true depth tremor needs a second camera (fase 2).
+                wj = np.std(np.stack(self._wrist)[:, :2], axis=0)
+                cj = np.std(np.stack(self._center)[:, :2], axis=0)
+                jitter = float(np.linalg.norm(wj)) / sw
+                sway = float(np.linalg.norm(cj)) / sw
 
         aiming = self._looks_aiming(m)
         down = self._arm_down(m)

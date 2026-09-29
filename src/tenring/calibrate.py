@@ -27,6 +27,7 @@ from . import capture
 from .pose.mediapipe_backend import MediaPipeBackend
 from .analysis.metrics import compute
 from .analysis.arm import ArmSelector
+from .analysis.state import StateMachine
 
 
 NEUTRAL_KEYS = ["torso_lean", "shoulder_elevation", "arm_extension",
@@ -39,7 +40,7 @@ def main() -> None:
                     help="indice camera (default: auto)")
     ap.add_argument("--list-cameras", action="store_true",
                     help="elenca le camere disponibili ed esci")
-    ap.add_argument("--seconds", type=float, default=6.0)
+    ap.add_argument("--seconds", type=float, default=8.0)
     ap.add_argument("--mirror", dest="mirror", action="store_true", default=True,
                     help="effetto specchio (default: attivo)")
     ap.add_argument("--no-mirror", dest="mirror", action="store_false")
@@ -62,6 +63,7 @@ def main() -> None:
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)
     buffers = {k: [] for k in NEUTRAL_KEYS}
     arm = ArmSelector(default=handedness)
+    sm = StateMachine(ref, fps=30.0)
     start = None
 
     with MediaPipeBackend(model_complexity=2) as backend:
@@ -78,13 +80,14 @@ def main() -> None:
             if args.mirror:
                 frame = cv2.flip(frame, 1)
             pose = backend.process(frame)
-            m = compute(pose, handedness=arm.update(pose))
-
             now = time.time()
+            m = compute(pose, handedness=arm.update(pose))
+            fs = sm.update(m, now)
+
             if start is None:
                 # 3s countdown before recording
-                cv2.putText(frame, "Preparati... in posizione", (30, 60),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 220, 255), 2)
+                cv2.putText(frame, "Mettiti in posizione di tiro (braccio su)", (30, 60),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 220, 255), 2)
                 if _key_or_wait():
                     start = now + 3.0
             elif now < start:
@@ -92,14 +95,18 @@ def main() -> None:
                 cv2.putText(frame, str(cd), (frame.shape[1] // 2, frame.shape[0] // 2),
                             cv2.FONT_HERSHEY_SIMPLEX, 3.0, (0, 220, 255), 4)
             elif now < start + args.seconds:
-                if m.quality > 0.5:  # only record well-detected frames
+                # Record ONLY while actually aiming, so the neutral is the real
+                # shooting posture (not arm-down at rest).
+                if fs.is_aiming and m.quality > 0.5:
                     for k in NEUTRAL_KEYS:
                         v = getattr(m, k)
                         if np.isfinite(v):
                             buffers[k].append(v)
                 remaining = start + args.seconds - now
-                cv2.putText(frame, f"REGISTRO... {remaining:3.1f}s", (30, 60),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1.0, (80, 220, 80), 2)
+                aim_txt = "IN MIRA — registro" if fs.is_aiming else "ALZA IL BRACCIO E MIRA"
+                col = (80, 220, 80) if fs.is_aiming else (0, 200, 255)
+                cv2.putText(frame, f"{aim_txt}  {remaining:3.1f}s", (30, 60),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, col, 2)
             else:
                 break
 
@@ -111,18 +118,24 @@ def main() -> None:
     cap.release()
     cv2.destroyAllWindows()
 
+    n_aim = max((len(v) for v in buffers.values()), default=0)
+    if n_aim < 10:
+        raise SystemExit(
+            "[calibrate] Pochi frame in mira raccolti "
+            f"({n_aim}). Rifai la calibrazione restando in posizione con il "
+            "braccio ALZATO e fermo per tutta la registrazione "
+            "(usa --seconds 8 per più tempo).")
+
     neutral = {}
     for k in NEUTRAL_KEYS:
         if buffers[k]:
             neutral[k] = round(float(np.median(buffers[k])), 3)
-    if not neutral:
-        raise SystemExit("[calibrate] Nessun dato raccolto: riprova con più luce/inquadratura piena.")
 
     profile = cfg.load_profile() or {}
     profile["neutral"] = neutral
     profile["calibrated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
     path = cfg.save_profile(profile)
-    print(f"[calibrate] Profilo salvato in {path}")
+    print(f"[calibrate] Profilo salvato in {path}  ({n_aim} frame in mira)")
     for k, v in neutral.items():
         print(f"    {k:<20} {v}")
 

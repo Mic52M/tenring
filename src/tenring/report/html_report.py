@@ -88,11 +88,14 @@ def _chart_distribution(dist: dict) -> str:
     return _fig_to_b64(fig)
 
 
-def _chart_timeline(records: list) -> str:
+def _chart_timeline(records: list, shots: list) -> str:
     t = [r["t"] for r in records]
     keys = [k for k in ANGLE_KEYS if any(r.get(k) is not None for r in records)]
     if not keys:
         keys = ["torso_lean"]
+    shot_ts = [s.t_end for s in shots] if shots else []
+    # shots carry absolute time; align to the record timeline origin
+    t0_abs = shot_ts and min(shot_ts) or 0
     fig, axes = plt.subplots(len(keys), 1, figsize=(7.2, 1.5 * len(keys)),
                              facecolor=_BG, sharex=True)
     if len(keys) == 1:
@@ -102,8 +105,8 @@ def _chart_timeline(records: list) -> str:
         ax.plot(t, vals, color="#5aa9e6", linewidth=1.2)
         ax.set_ylabel(METRIC_LABELS[k], fontsize=8)
         _style(ax)
-    axes[-1].set_xlabel("tempo (s)")
-    axes[0].set_title("Timeline postura")
+    axes[-1].set_xlabel("tempo (s) — solo fasi in mira")
+    axes[0].set_title("Timeline postura (fasi di mira)")
     fig.tight_layout()
     return _fig_to_b64(fig)
 
@@ -121,7 +124,7 @@ def _chart_stability(records: list, ref: dict) -> Optional[str]:
     ax.axhline(s["wrist_jitter_bad"], color=_BAD, linestyle="--", linewidth=1)
     ax.set_xlabel("tempo (s)")
     ax.set_ylabel("tremore polso")
-    ax.set_title("Stabilità (tremore in mira) — più basso è meglio")
+    ax.set_title("Stabilità (tremore in mira, piano frontale) — più basso è meglio")
     _style(ax)
     return _fig_to_b64(fig)
 
@@ -163,7 +166,7 @@ def build_report(records: list, shots: list, summary, ref: dict,
     if dist:
         charts.append(("", _chart_distribution(dist)))
     if records:
-        charts.append(("", _chart_timeline(records)))
+        charts.append(("", _chart_timeline(records, shots)))
     st_chart = _chart_stability(records, ref)
     if st_chart:
         charts.append(("", st_chart))
@@ -254,6 +257,8 @@ tr:last-child td{{border-bottom:none}}
 <h2>Grafici</h2>{charts_html}
 <h2>Ripetibilità colpo-su-colpo</h2>
 <table><tr><th>Metrica</th><th>Media</th><th>Dev. std (↓ meglio)</th></tr>{cons_rows}</table>
-<div class="foot">Generato da tenring · le soglie derivano dalla teoria del tiro 10 m
-(vedi docs/THEORY.md). Non misura la mira/mirino (dominio SCATT): analizza il corpo.</div>
+<div class="foot">Generato da tenring · valutazione sulla TUA postura calibrata (se presente),
+con guardrail dalla teoria del tiro 10 m (docs/THEORY.md). Solo fasi in mira.
+Il tremore è misurato nel piano frontale (con una camera sola non si misura la
+profondità). Non misura la mira/mirino (dominio SCATT): analizza il corpo.</div>
 </div></body></html>"""

@@ -83,6 +83,27 @@ L'app copre soprattutto **(1)** e in parte **(2)**, più la **stabilità** globa
 - L'**oscillazione del centro di pressione** è sempre più bassa negli elite. Proxy dalla
   camera: oscillazione del midpoint anche/spalle. → `metric: body_sway`.
 
+## 6b. Respirazione e avvicinamento alla mira (THEORY §6b)
+
+Sequenza standard del colpo a 10 m (praticata da quasi tutti i tiratori):
+
+1. Si **solleva l'arma sopra il bersaglio** (braccio esteso).
+2. Si **espira** e si lascia **scendere** la mano nella **zona di mira**, che nel
+   tiro di precisione è tipicamente **nel bianco sotto il nero** (sotto il centro).
+3. Si **trattiene** parzialmente il respiro (aria trattenuta costante = più
+   consistenza) e si tiene la mira per pochi secondi, rilasciando il grilletto.
+
+Conseguenza per il tracking (una camera): si vede il **braccio salire e poi
+scendere e stabilizzarsi in asse con la spalla** — è esattamente la nostra fase
+`AIMING → HOLD`. Il **punto di mira** effettivo (dove punta il mirino) e la
+respirazione non sono osservabili dalla posa del corpo: sono dominio dei sistemi
+ottici (SCATT) e non vengono giudicati qui.
+
+**Natural Point of Aim (NPA)**: la posizione dovrebbe puntare naturalmente al
+centro senza correzioni muscolari; nell'aria compressa si regola soprattutto con
+la **rotazione dei piedi e l'angolo dell'anca** (il braccio è già esteso). Un buon
+indicatore indiretto è la bassa deriva laterale in hold (`sway`).
+
 ## 7. Ripetibilità colpo-su-colpo
 
 - Marcare la posizione (piedi, assetto) e riprodurla identica ad ogni colpo.
@@ -98,6 +119,16 @@ L'app copre soprattutto **(1)** e in parte **(2)**, più la **stabilità** globa
   spalle / rotazione busto** (ambiguità di profondità): richiede una seconda camera
   (frontale o posteriore) in una fase 2. MediaPipe fornisce comunque `world_landmarks`
   in 3D (metri, relativi all'anca) che attenuano parzialmente il limite.
+- **Tremore solo nel piano della camera**: il `jitter` è misurato su x,y (verticale +
+  laterale rispetto alla camera). La componente in **profondità** (z) è rumorosa con
+  una sola camera e non viene usata. Da webcam **frontale** si coglie bene il tremore
+  orizzontale e verticale; da camera **laterale** il verticale e in avanti/indietro.
+  La misura completa 3D del tremore richiede due camere.
+- **Angoli assoluti inaffidabili da una vista** → per questo le metriche
+  dipendenti dalla vista (spalla, braccio, polso, testa) sono valutate come
+  **deviazione dalla postura calibrata dell'utente** (`config/profile.yaml`), non da
+  angoli assoluti da manuale. Gli angoli assoluti restano solo come guardrail/ripiego
+  quando non c'è calibrazione. → `analysis/rules.py`.
 
 ## 9. Handedness e geometria camera
 

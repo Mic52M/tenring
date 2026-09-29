@@ -32,12 +32,15 @@ torso_lean_back:
 # larghezza spalle. Positivo = spalla armata più ALTA (shrug/contrattura).
 shoulder_elevation:
   ideal_ratio: 0.0
-  warn_ratio: 0.08
-  bad_ratio: 0.15
+  warn_ratio: 0.10
+  bad_ratio: 0.18
+  # Deviazione dal neutro calibrato (usata se esiste config/profile.yaml):
+  dev_warn: 0.06
+  dev_bad: 0.12
   cue_bad: "Spalla dell'arma alzata e contratta: abbassala e rilassala."
   cue_warn: "Spalla un po' tesa, cerca di rilassarla."
   # Spalla troppo cadente (struttura persa): valore fortemente negativo
-  drop_warn_ratio: -0.10
+  drop_warn_ratio: -0.12
   cue_drop: "Spalla troppo molle: perdi struttura, ritrova il tono."
   theory: "THEORY §3 — spalla bassa e rilassata."
 
@@ -45,11 +48,15 @@ shoulder_elevation:
 # Angolo al gomito (spalla-gomito-polso). ~180 = esteso. Evitare blocco rigido
 # e flessione instabile.
 arm_extension:
-  ideal_deg: 178.0
-  warn_deg: 168.0     # sotto = braccio troppo flesso
-  bad_deg: 158.0
-  locked_deg: 185.0   # oltre (iperesteso) improbabile ma segnalabile
-  cue_bad: "Braccio troppo flesso: estendilo verso il bersaglio, fermo ma non bloccato."
+  # NB: da webcam frontale MediaPipe "accorcia" il braccio (foreshortening),
+  # quindi le assolute sono permissive; la valutazione vera e' sulla deviazione
+  # dal TUO neutro calibrato.
+  ideal_deg: 172.0
+  warn_deg: 150.0     # sotto = braccio troppo flesso
+  bad_deg: 135.0
+  dev_warn: 10.0      # deviazione dal neutro calibrato
+  dev_bad: 20.0
+  cue_bad: "Braccio troppo flesso rispetto al tuo assetto: estendilo verso il bersaglio."
   cue_warn: "Estendi meglio il braccio."
   theory: "THEORY §3 — braccio esteso, fermo, non ipercontratto."
 
@@ -57,9 +64,11 @@ arm_extension:
 # Deviazione dell'angolo gomito-polso-mano dalla linea retta dell'avambraccio.
 wrist_alignment:
   ideal_deg: 180.0
-  warn_deg: 165.0
-  bad_deg: 155.0
-  cue_bad: "Polso non allineato: bloccalo dritto con l'avambraccio."
+  warn_deg: 150.0
+  bad_deg: 135.0
+  dev_warn: 12.0      # deviazione dal neutro calibrato
+  dev_bad: 22.0
+  cue_bad: "Polso fuori dal tuo assetto: bloccalo dritto con l'avambraccio."
   cue_warn: "Attenzione all'allineamento del polso."
   theory: "THEORY §4 — polso dritto e bloccato."
 
@@ -67,9 +76,11 @@ wrist_alignment:
 # Angolo della linea occhi (o orecchie) rispetto all'orizzonte.
 head_tilt:
   ideal_deg: 0.0
-  warn_deg: 8.0
-  bad_deg: 15.0
-  cue_bad: "Testa inclinata: tienila eretta, occhi allineati alla mira."
+  warn_deg: 10.0
+  bad_deg: 18.0
+  dev_warn: 7.0       # deviazione dal neutro calibrato
+  dev_bad: 14.0
+  cue_bad: "Testa inclinata rispetto al tuo assetto: tienila eretta, occhi in linea."
   cue_warn: "Testa leggermente inclinata."
   theory: "THEORY §5 — testa eretta e ferma."
 
