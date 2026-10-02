@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -266,28 +267,58 @@ def _verdict_consistency(summary, ref: dict) -> tuple:
     return ("Ripetibilità da migliorare", _BAD, score)
 
 
+def _fnum(x) -> Optional[float]:
+    """NaN/None -> None (JSON null); else rounded float."""
+    if x is None:
+        return None
+    try:
+        xf = float(x)
+    except (TypeError, ValueError):
+        return None
+    return None if xf != xf else round(xf, 3)
+
+
+def _shots_json(shots: list) -> list:
+    out = []
+    for i, s in enumerate(shots):
+        out.append({
+            "n": i + 1,
+            "total": _fnum(s.total_time),
+            "rise": _fnum(s.time_to_hold),
+            "hold": _fnum(s.hold_duration),
+            "descent": _fnum(s.descent_time),
+            "tremor": _fnum(s.wrist_jitter),
+            "peak": _fnum(s.raise_peak),
+            "settle": _fnum(s.settle_elev),
+            "metrics": {METRIC_LABELS[k]: _fnum(v)
+                        for k, v in s.metrics_mean.items() if k in METRIC_LABELS},
+        })
+    return out
+
+
 def build_report(records: list, shots: list, summary, ref: dict,
                  out_path: Path, when: str = "") -> Path:
     dist = _fault_distribution(records)
     mean_jit = summary.mean_wrist_jitter if summary else float("nan")
     verdict, vcolor, score = _verdict_consistency(summary, ref)
     top = _consistency_faults(summary)
+    n_shots = summary.n_shots if summary else 0
 
+    # ---- overview (aggregate) charts ----
     charts = []
-    # Per-shot analysis first — the core view for single-shot air pistol.
-    sc = _chart_shots(shots, ref)
-    if sc:
-        charts.append(("", sc))
-    scc = _chart_shot_consistency(shots)
-    if scc:
-        charts.append(("", scc))
+    for ch in (_chart_shots(shots, ref), _chart_shot_consistency(shots)):
+        if ch:
+            charts.append(ch)
     if records:
-        charts.append(("", _chart_timeline(records, shots)))
+        charts.append(_chart_timeline(records, shots))
     st_chart = _chart_stability(records, ref)
     if st_chart:
-        charts.append(("", st_chart))
+        charts.append(st_chart)
     if dist:
-        charts.append(("", _chart_distribution(dist)))
+        charts.append(_chart_distribution(dist))
+    charts_html = "".join(
+        f'<div class="card"><img src="data:image/png;base64,{b64}"/></div>'
+        for b64 in charts)
 
     # consistency table
     cons_rows = ""
@@ -295,94 +326,159 @@ def build_report(records: list, shots: list, summary, ref: dict,
         for k, label in METRIC_LABELS.items():
             std = summary.consistency.get(k, float("nan"))
             mean = summary.means.get(k, float("nan"))
-            if std == std:  # not NaN
+            if std == std:
                 cons_rows += (f"<tr><td>{label}</td><td>{mean:.2f}</td>"
                               f"<td>{std:.2f}</td></tr>")
-    n_shots = summary.n_shots if summary else 0
+    cons_rows = cons_rows or '<tr><td colspan="3">Nessun colpo rilevato</td></tr>'
 
     if summary and summary.n_shots >= MIN_SHOTS:
         top_html = "".join(
             f'<li><b>{name}</b> — poco ripetibile: varia di ±{std:.2f} tra i colpi</li>'
             for name, std in top) or "<li>Ottima ripetibilità colpo-su-colpo 👌</li>"
     else:
-        have = summary.n_shots if summary else 0
         top_html = (f"<li>Servono almeno {MIN_SHOTS} colpi per l'analisi di "
-                    f"ripetibilità (ne ho rilevati {have}). Esegui più cicli: "
+                    f"ripetibilità (ne ho rilevati {n_shots}). Esegui più cicli: "
                     "alza il braccio, mira, spara, abbassa.</li>")
 
-    # Metrics never reliably in frame -> not judged (honest reporting).
     not_eval = [label for k, label in METRIC_LABELS.items() if k not in dist]
+    noteval_html = ""
     if not_eval:
         noteval_html = ('<h2>Non valutato (fuori inquadratura)</h2>'
-                        '<p class="muted">Queste parti non erano ben inquadrate, '
-                        'quindi non sono state giudicate: <b>'
-                        + ", ".join(not_eval) + '</b>. '
-                        'Allarga l\'inquadratura per includerle.</p>')
-    else:
-        noteval_html = ""
+                        '<p class="muted">Non erano ben inquadrate, quindi non '
+                        'giudicate: <b>' + ", ".join(not_eval) + '</b>.</p>')
 
-    charts_html = "".join(
-        f'<div class="card"><img src="data:image/png;base64,{b64}"/></div>'
-        for _, b64 in charts)
-
-    html = _TEMPLATE.format(
-        when=when, verdict=verdict, vcolor=vcolor, score=int(score),
-        n_frames=len(records), n_shots=n_shots,
-        mean_jit=("n/d" if mean_jit != mean_jit else f"{mean_jit:.4f}"),
-        top_html=top_html, charts_html=charts_html, noteval_html=noteval_html,
-        cons_rows=cons_rows or '<tr><td colspan="3">Nessun colpo rilevato</td></tr>',
+    overview_html = (
+        f'<h2>Su cosa lavorare (ripetibilità)</h2><ul>{top_html}</ul>'
+        f'{noteval_html}'
+        f'<h2>Grafici di sessione</h2>{charts_html}'
+        f'<h2>Ripetibilità colpo-su-colpo</h2>'
+        f'<table><tr><th>Metrica</th><th>Media</th><th>Dev. std (↓ meglio)</th></tr>'
+        f'{cons_rows}</table>'
     )
+
+    data = {
+        "shots": _shots_json(shots),
+        "overview": overview_html,
+        "tremor_warn": ref["stability"]["wrist_jitter_warn"],
+        "tremor_bad": ref["stability"]["wrist_jitter_bad"],
+    }
+    mean_jit_s = "n/d" if mean_jit != mean_jit else f"{mean_jit:.4f}"
+
+    shot_buttons = "".join(
+        f'<button data-k="{i}">Colpo {i + 1}</button>' for i in range(n_shots))
+
+    html = (_HEAD
+            + f'<div class="muted">Pistola ad aria compressa 10 m · {when}</div>'
+            + f'<div class="hero"><div class="score" style="color:{vcolor}">{int(score)}</div>'
+            + f'<div><div class="verdict" style="color:{vcolor}">{verdict}</div>'
+            + '<div class="muted">punteggio 0–100 (ripetibilità + stabilità)</div></div></div>'
+            + '<div class="grid">'
+            + f'<div class="stat"><div class="n">{n_shots}</div><div class="l">colpi rilevati</div></div>'
+            + f'<div class="stat"><div class="n">{len(records)}</div><div class="l">frame in mira</div></div>'
+            + f'<div class="stat"><div class="n">{mean_jit_s}</div><div class="l">tremore medio (hold)</div></div>'
+            + '</div>'
+            + '<div class="layout"><aside class="shotlist" id="shotlist">'
+            + '<button data-k="overview" class="active">Panoramica</button>'
+            + shot_buttons
+            + '</aside><main class="detail" id="detail"></main></div>'
+            + _FOOT
+            + '<script>const DATA=' + json.dumps(data, ensure_ascii=False) + ';'
+            + _JS + '</script></body></html>')
     out_path.write_text(html, encoding="utf-8")
     return out_path
 
 
-_TEMPLATE = """<!doctype html><html lang="it"><head><meta charset="utf-8">
+_HEAD = """<!doctype html><html lang="it"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>tenring — resoconto sessione</title>
 <style>
-:root{{--bg:#0f1216;--fg:#e6e6e6;--muted:#9aa3ad;--card:#171b21;--line:#2a2f37}}
-*{{box-sizing:border-box}}
-body{{margin:0;background:var(--bg);color:var(--fg);
-font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.5}}
-.wrap{{max-width:860px;margin:0 auto;padding:24px 16px 60px}}
-h1{{font-size:22px;margin:0 0 4px}} .muted{{color:var(--muted);font-size:13px}}
-.hero{{display:flex;gap:18px;align-items:center;background:var(--card);
-border:1px solid var(--line);border-radius:14px;padding:18px;margin:18px 0}}
-.score{{font-size:40px;font-weight:700}}
-.verdict{{font-size:20px;font-weight:600}}
-.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin:12px 0}}
-.stat{{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}}
-.stat .n{{font-size:22px;font-weight:700}} .stat .l{{color:var(--muted);font-size:12px}}
-.card{{background:var(--card);border:1px solid var(--line);border-radius:12px;
-padding:12px;margin:14px 0}} .card img{{width:100%;display:block;border-radius:8px}}
-h2{{font-size:15px;margin:22px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}}
-ul{{margin:6px 0}} li{{margin:4px 0}}
-table{{width:100%;border-collapse:collapse;font-size:14px;background:var(--card);
-border:1px solid var(--line);border-radius:12px;overflow:hidden}}
-th,td{{padding:8px 12px;text-align:left;border-bottom:1px solid var(--line)}}
-th{{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}}
-tr:last-child td{{border-bottom:none}}
-.foot{{color:var(--muted);font-size:12px;margin-top:30px}}
+:root{--bg:#0f1216;--fg:#e6e6e6;--muted:#9aa3ad;--card:#171b21;--line:#2a2f37;--accent:#5aa9e6}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.5}
+.wrap{max-width:900px;margin:0 auto;padding:24px 16px 60px}
+h1{font-size:22px;margin:0 0 4px}
+.muted{color:var(--muted);font-size:13px}
+.hero{display:flex;gap:18px;align-items:center;background:var(--card);
+border:1px solid var(--line);border-radius:14px;padding:18px;margin:18px 0}
+.score{font-size:40px;font-weight:700}
+.verdict{font-size:20px;font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin:12px 0}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+.stat .n{font-size:22px;font-weight:700}.stat .l{color:var(--muted);font-size:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin:14px 0}
+.card img{width:100%;display:block;border-radius:8px}
+h2{font-size:14px;margin:20px 0 8px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+ul{margin:6px 0}li{margin:4px 0}
+table{width:100%;border-collapse:collapse;font-size:14px;background:var(--card);
+border:1px solid var(--line);border-radius:12px;overflow:hidden}
+th,td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}
+tr:last-child td{border-bottom:none}
+.layout{display:grid;grid-template-columns:160px 1fr;gap:16px;margin-top:10px}
+.shotlist button{display:block;width:100%;text-align:left;margin:0 0 6px;padding:10px 12px;
+border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:10px;
+cursor:pointer;font-size:14px;transition:.12s}
+.shotlist button:hover{border-color:var(--accent)}
+.shotlist button.active{border-color:var(--accent);background:#1c2430;box-shadow:inset 3px 0 0 var(--accent)}
+.detail{min-height:200px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+.kpi .n{font-size:20px;font-weight:700}.kpi .l{color:var(--muted);font-size:12px}
+.phasebar{display:flex;height:26px;border-radius:7px;overflow:hidden;margin:6px 0 2px;border:1px solid var(--line)}
+.phasebar span{display:flex;align-items:center;justify-content:center;font-size:11px;color:#0c0f13;font-weight:600;min-width:0;overflow:hidden;white-space:nowrap}
+.legend{font-size:12px;color:var(--muted);display:flex;gap:14px;flex-wrap:wrap}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:middle}
+.foot{color:var(--muted);font-size:12px;margin-top:30px}
+@media(max-width:640px){.layout{grid-template-columns:1fr}}
 </style></head><body><div class="wrap">
-<h1>tenring — resoconto sessione</h1>
-<div class="muted">Pistola ad aria compressa 10 m · {when}</div>
-<div class="hero">
-  <div class="score" style="color:{vcolor}">{score}</div>
-  <div><div class="verdict" style="color:{vcolor}">{verdict}</div>
-  <div class="muted">punteggio 0–100 (ripetibilità colpo-su-colpo + stabilità)</div></div>
-</div>
-<div class="grid">
-  <div class="stat"><div class="n">{n_shots}</div><div class="l">colpi rilevati</div></div>
-  <div class="stat"><div class="n">{n_frames}</div><div class="l">frame in posizione</div></div>
-  <div class="stat"><div class="n">{mean_jit}</div><div class="l">tremore medio (hold)</div></div>
-</div>
-<h2>Su cosa lavorare (ripetibilità)</h2><ul>{top_html}</ul>
-{noteval_html}
-<h2>Grafici</h2>{charts_html}
-<h2>Ripetibilità colpo-su-colpo</h2>
-<table><tr><th>Metrica</th><th>Media</th><th>Dev. std (↓ meglio)</th></tr>{cons_rows}</table>
-<div class="foot">Generato da tenring · valutazione sulla TUA postura calibrata (se presente),
-con guardrail dalla teoria del tiro 10 m (docs/THEORY.md). Solo fasi in mira.
-Il tremore è misurato nel piano frontale (con una camera sola non si misura la
-profondità). Non misura la mira/mirino (dominio SCATT): analizza il corpo.</div>
-</div></body></html>"""
+<h1>tenring — resoconto sessione</h1>"""
+
+_FOOT = """<div class="foot">Generato da tenring · valutazione sulla TUA postura di
+sessione (deviazione dal tuo assetto), con guardrail dalla teoria del tiro 10 m
+(docs/THEORY.md). Solo fasi in mira; la discesa post-sparo è esclusa. Tremore nel
+piano frontale. Non misura la mira/mirino (dominio SCATT): analizza il corpo.</div>"""
+
+_JS = r"""
+const C_RISE="#5aa9e6",C_HOLD="#4fc36b",C_DESC="#9aa3ad";
+function s1(x){return x==null?"n/d":x.toFixed(1);}
+function s2(x){return x==null?"n/d":x.toFixed(2);}
+function s3(x){return x==null?"n/d":x.toFixed(3);}
+function tremorColor(t){if(t==null)return"var(--muted)";if(t>DATA.tremor_bad)return"#e8503a";if(t>DATA.tremor_warn)return"#f2c14e";return"#4fc36b";}
+function phaseBar(sh){
+  const r=sh.rise||0,h=sh.hold||0,d=sh.descent||0,tot=(r+h+d)||1;
+  const seg=(w,c,lbl)=>`<span style="flex:${w};background:${c}">${w/tot>0.12?lbl:""}</span>`;
+  return `<div class="phasebar">${seg(r,C_RISE,"salita+mira")}${seg(h,C_HOLD,"hold")}${seg(d,C_DESC,"discesa")}</div>
+  <div class="legend"><span><i style="background:${C_RISE}"></i>salita+mira ${s1(sh.rise)}s</span>
+  <span><i style="background:${C_HOLD}"></i>hold ${s1(sh.hold)}s</span>
+  <span><i style="background:${C_DESC}"></i>discesa ${s1(sh.descent)}s</span></div>`;
+}
+function shotHTML(sh){
+  let rows="";for(const k in sh.metrics){rows+=`<tr><td>${k}</td><td>${s2(sh.metrics[k])}</td></tr>`;}
+  const above=(sh.peak!=null&&sh.settle!=null)?(sh.peak-sh.settle):null;
+  return `<h2>Colpo ${sh.n}</h2>
+  <div class="kpis">
+    <div class="kpi"><div class="n">${s1(sh.total)}s</div><div class="l">tempo totale colpo</div></div>
+    <div class="kpi"><div class="n">${s1(sh.rise)}s</div><div class="l">salita + mira</div></div>
+    <div class="kpi"><div class="n">${s1(sh.hold)}s</div><div class="l">durata hold</div></div>
+    <div class="kpi"><div class="n">${s1(sh.descent)}s</div><div class="l">discesa</div></div>
+    <div class="kpi"><div class="n" style="color:${tremorColor(sh.tremor)}">${s3(sh.tremor)}</div><div class="l">tremore in hold</div></div>
+    <div class="kpi"><div class="n">${s1(sh.peak)}°</div><div class="l">picco elevazione braccio</div></div>
+    <div class="kpi"><div class="n">${s1(sh.settle)}°</div><div class="l">elevazione in hold</div></div>
+    <div class="kpi"><div class="n">${above==null?"n/d":"+"+above.toFixed(1)+"°"}</div><div class="l">salita sopra il bersaglio</div></div>
+  </div>
+  <h2>Fasi del colpo</h2>${phaseBar(sh)}
+  <h2>Postura all'istante più fermo</h2>
+  <table><tr><th>Metrica</th><th>Valore</th></tr>${rows}</table>`;
+}
+function render(k){
+  const d=document.getElementById("detail");
+  if(k==="overview"){d.innerHTML=DATA.overview;}
+  else{d.innerHTML=shotHTML(DATA.shots[+k]);}
+  document.querySelectorAll("#shotlist button").forEach(b=>b.classList.toggle("active",b.dataset.k===k));
+}
+document.getElementById("shotlist").addEventListener("click",e=>{
+  const b=e.target.closest("button");if(b)render(b.dataset.k);
+});
+render("overview");
+"""

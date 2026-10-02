@@ -122,6 +122,12 @@ pytest
       webcam. Risolve il "100% fuori tolleranza".
 - [x] Tracking e grafici **per-colpo** (tremore + durata hold per colpo,
       ripetibilità colpo-su-colpo). Postura del colpo = istante più fermo dell'hold.
+- [x] Stato **RELEASE**: la discesa del braccio dopo lo sparo (ricarica) non è
+      più analizzata come mira.
+- [x] **Tempi per colpo** (salita+mira / hold / discesa / totale) e **elevazione
+      del braccio** (picco sopra il bersaglio vs assestamento ~90°).
+- [x] **Report interattivo**: lista colpi a sinistra, dettaglio (tempi di fase,
+      elevazione, tremore, postura) a destra; "Panoramica" per i grafici di sessione.
 - [ ] Fase 2: **seconda camera** (telefono frontale/posteriore) per quadratura
       spalle e rotazione busto — fusione multi-vista.
 - [ ] Rilevamento del colpo più robusto (audio dello scatto / marcatura manuale).

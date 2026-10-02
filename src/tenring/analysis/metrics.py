@@ -33,6 +33,7 @@ class Metrics:
     quality: float = 0.0                    # mean visibility of key landmarks
     armed_side: str = ""                    # 'left'/'right' actually used this frame
     arm_raise: float = float("nan")         # armed-wrist height: 0=at hip, 1=at shoulder
+    arm_elevation: float = float("nan")     # angle shoulder->wrist vs torso, deg (~90 in mira)
     torso_seen: bool = False                # shoulders+hips reliably in frame
 
     def as_dict(self) -> dict:
@@ -127,6 +128,12 @@ def compute(pose: PoseResult, handedness: str = "right") -> Metrics:
         denom = hip_y - sh_y
         if abs(denom) > 1e-6:
             m.arm_raise = float((hip_y - w[armed["wrist"]][1]) / denom)
+        # Arm elevation: angle between the arm (shoulder->wrist) and the torso
+        # (shoulder->hip). ~90 deg when aiming horizontally; >90 when raised
+        # above the target during the approach. (THEORY §6b)
+        m.arm_elevation = G.angle_at(
+            w[armed["wrist"]], w[armed["shoulder"]], w[armed["hip"]]
+        )
         # --- 4. Wrist alignment — THEORY §4 (needs wrist + hand) ---
         if _seen(pose, armed["index"], 0.4):
             m.wrist_alignment = G.angle_at(

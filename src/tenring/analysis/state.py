@@ -32,6 +32,7 @@ class State(str, Enum):
     READY = "READY"
     AIMING = "AIMING"
     HOLD = "HOLD"
+    RELEASE = "RELEASE"   # post-shot: arm coming down to reload -> NOT analysed
 
 
 _LABEL = {
@@ -39,6 +40,7 @@ _LABEL = {
     State.READY: "Mettiti in posizione di tiro",
     State.AIMING: "In posizione — analisi attiva",
     State.HOLD: "HOLD (in mira, fermo)",
+    State.RELEASE: "Colpo fatto — abbassa / ricarica",
 }
 
 
@@ -50,6 +52,7 @@ class FrameState:
     wrist_jitter: float = float("nan")
     sway: float = float("nan")
     hold_frames: int = 0
+    analyze: bool = False   # whether THIS frame is a real aiming frame to record
 
     @property
     def is_aiming(self) -> bool:
@@ -92,6 +95,9 @@ class StateMachine:
         self._best_metrics: Optional[Metrics] = None
         self._hold_frames_max = 0
         self._t_raise = 0.0
+        self._t_hold_start = float("nan")
+        self._t_hold_end = float("nan")
+        self._peak_elev = float("nan")
         self.shots: list[ShotEvent] = []
 
     # -- helpers ---------------------------------------------------------------
@@ -142,31 +148,47 @@ class StateMachine:
             if self._aim_run >= self.enter_aim:
                 self.state = State.AIMING
                 self._start_attempt(t)
-        elif self.state in (State.AIMING, State.HOLD):
-            # still holding?
+        elif self.state in (State.AIMING, State.HOLD, State.RELEASE):
             still = np.isfinite(jitter) and jitter <= self.hold_still_jitter
-            self._hold_frames = self._hold_frames + 1 if still else 0
-            if self._hold_frames >= self.hold_min_frames:
-                self.state = State.HOLD
-                self._hold_achieved = True
-                self._hold_frames_max = max(self._hold_frames_max, self._hold_frames)
-                # snapshot the posture at the STEADIEST instant of the hold
-                if np.isfinite(jitter) and jitter < self._best_jitter:
-                    self._best_jitter = jitter
-                    self._best_sway = sway
-                    self._best_metrics = m
+            if aiming:
+                # arm genuinely up & extended -> this is a real aiming frame
+                self._hold_frames = self._hold_frames + 1 if still else 0
+                if self._hold_frames >= self.hold_min_frames:
+                    self.state = State.HOLD
+                    if not self._hold_achieved:
+                        self._t_hold_start = t
+                    self._hold_achieved = True
+                    self._t_hold_end = t  # extend while still holding
+                    self._hold_frames_max = max(self._hold_frames_max, self._hold_frames)
+                    if np.isfinite(jitter) and jitter < self._best_jitter:
+                        self._best_jitter = jitter
+                        self._best_sway = sway
+                        self._best_metrics = m
+                else:
+                    self.state = State.AIMING
             else:
-                self.state = State.AIMING
-            # arm lowered -> shot taken (if a real hold happened)
+                # arm not up this frame: after a shot this is the descent/reload
+                # (RELEASE, not analysed); before any hold it's still rising.
+                self._hold_frames = 0
+                self.state = State.RELEASE if self._hold_achieved else State.AIMING
+            # arm fully lowered -> end of cycle (shot registered if a hold happened)
             if self._down_run >= self.exit_aim:
                 self._end_attempt(t)
                 self.state = State.READY
+
+        # track the peak arm elevation during the attempt (approach above target)
+        if self._attempt_active and np.isfinite(m.arm_elevation):
+            if not np.isfinite(self._peak_elev) or m.arm_elevation > self._peak_elev:
+                self._peak_elev = m.arm_elevation
 
         fs.state = self.state
         fs.in_hold = self.state == State.HOLD
         fs.wrist_jitter = jitter
         fs.sway = sway
         fs.hold_frames = self._hold_frames
+        # Analyse/record only genuine aiming frames (arm up): excludes the
+        # post-shot descent and the reload.
+        fs.analyze = (self.state == State.HOLD) or (self.state == State.AIMING and aiming)
         return fs
 
     # -- attempt bookkeeping ---------------------------------------------------
@@ -179,6 +201,9 @@ class StateMachine:
         self._best_sway = float("nan")
         self._best_metrics = None
         self._t_raise = t
+        self._t_hold_start = float("nan")
+        self._t_hold_end = float("nan")
+        self._peak_elev = float("nan")
 
     def _end_attempt(self, t: float) -> None:
         if self._attempt_active and self._hold_achieved:
@@ -195,13 +220,28 @@ class StateMachine:
         for k in keys:
             v = getattr(snap, k) if snap is not None else float("nan")
             means[k] = float(v) if (v is not None and np.isfinite(v)) else float("nan")
+
+        ths = self._t_hold_start
+        the = self._t_hold_end
+        time_to_hold = (ths - self._t_raise) if np.isfinite(ths) else float("nan")
+        hold_dur = (the - ths) if (np.isfinite(ths) and np.isfinite(the)) else float("nan")
+        descent = (t - the) if np.isfinite(the) else float("nan")
+        settle = getattr(snap, "arm_elevation", float("nan")) if snap is not None else float("nan")
+
         self.shots.append(ShotEvent(
             t_end=t,
             wrist_jitter=(self._best_jitter if self._best_jitter != float("inf")
                           else float("nan")),
             sway=self._best_sway,
-            duration=self._hold_frames_max / self.fps,  # hold length in seconds
+            duration=self._hold_frames_max / self.fps,
             metrics_mean=means,
+            t_start=self._t_raise,
+            time_to_hold=time_to_hold,
+            hold_duration=hold_dur,
+            descent_time=descent,
+            total_time=t - self._t_raise,
+            raise_peak=self._peak_elev,
+            settle_elev=float(settle) if (settle is not None and np.isfinite(settle)) else float("nan"),
         ))
 
     def _to_idle(self) -> None:

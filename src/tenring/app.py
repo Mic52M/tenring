@@ -106,9 +106,10 @@ def main() -> None:
             now = time.time()
             fs = sm.update(m, now)
 
-            # Record/report ONLY when actually in the aiming position, and judge
-            # against the session's own settled posture (adaptive baseline).
-            if fs.is_aiming:
+            # Record/report ONLY genuine aiming frames (arm up): excludes the
+            # post-shot descent/reload. Judge against the session's own settled
+            # posture (adaptive baseline).
+            if fs.analyze:
                 baseline.update(m)
                 findings = engine.evaluate(m, neutral=baseline.as_dict())
                 recorder.add(now, m, findings, fs)
@@ -119,9 +120,9 @@ def main() -> None:
             overlay.draw_panel(frame, findings, fs, ref,
                                fps=fps, n_shots=len(sm.shots),
                                armed_side=armed_side,
-                               state_label=fs.label, aiming=fs.is_aiming)
+                               state_label=fs.label, aiming=fs.analyze)
             overlay.draw_banner(frame, findings, fs,
-                                aiming=fs.is_aiming, state_label=fs.label)
+                                aiming=fs.analyze, state_label=fs.label)
 
             dt = now - prev
             prev = now
