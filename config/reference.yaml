@@ -93,8 +93,12 @@ stance_width:
   narrow_bad_ratio: 0.55
   wide_warn_ratio: 1.35
   wide_bad_ratio: 1.6
+  dev_warn: 0.18      # deviazione dalla TUA apertura di sessione
+  dev_bad: 0.35
   cue_narrow: "Base troppo stretta: allarga i piedi verso la larghezza spalle."
   cue_wide: "Base troppo larga: irrigidisce, avvicina leggermente i piedi."
+  cue_warn: "Apertura piedi variata rispetto al tuo assetto."
+  cue_bad: "Apertura piedi molto diversa dal tuo assetto: ritrova la base."
   theory: "THEORY §2 — piedi ~larghezza spalle."
 
 # --- 7. Bilanciamento del peso (THEORY §2) -----------------------------------
@@ -104,8 +108,10 @@ weight_balance:
   ideal_offset: 0.0
   warn_offset: 0.12
   bad_offset: 0.22
-  cue_bad: "Peso sbilanciato su un piede: ridistribuisci uniformemente."
-  cue_warn: "Peso leggermente sbilanciato."
+  dev_warn: 0.10      # deviazione dal TUO bilanciamento di sessione
+  dev_bad: 0.20
+  cue_bad: "Peso spostato rispetto al tuo assetto: ridistribuisci uniformemente."
+  cue_warn: "Peso leggermente spostato rispetto al tuo assetto."
   theory: "THEORY §2 — peso uniforme, baricentro davanti all'anca."
 
 # --- 8. Stabilità durante l'hold (THEORY §6) ---------------------------------

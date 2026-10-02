@@ -163,10 +163,13 @@ class RuleEngine:
                                  c["cue_warn"], c["cue_bad"])
             f.append(Finding("head_tilt", "Testa", m.head_tilt, st, cue))
 
-        # 6. Stance width — two-sided (narrow / wide).
+        # 6. Stance width — deviation from your session base, else two-sided abs.
         c = r["stance_width"]
         if _isnan(m.stance_width):
             f.append(Finding("stance_width", "Apertura piedi", float("nan"), Status.NA))
+        elif self._has_neutral("stance_width"):
+            f.append(self._eval_symmetric_dev("stance_width", "Apertura piedi",
+                                              m.stance_width, c))
         else:
             v = m.stance_width
             if v <= c["narrow_bad_ratio"]:
@@ -181,10 +184,13 @@ class RuleEngine:
                 st, cue = Status.OK, ""
             f.append(Finding("stance_width", "Apertura piedi", v, st, cue))
 
-        # 7. Weight balance — absolute offset.
+        # 7. Weight balance — deviation from your session base, else absolute.
         c = r["weight_balance"]
         if _isnan(m.weight_balance):
             f.append(Finding("weight_balance", "Bilanciamento", float("nan"), Status.NA))
+        elif self._has_neutral("weight_balance"):
+            f.append(self._eval_symmetric_dev("weight_balance", "Bilanciamento",
+                                              m.weight_balance, c))
         else:
             st, cue = self._band(abs(m.weight_balance), c["warn_offset"], c["bad_offset"],
                                  c["cue_warn"], c["cue_bad"])

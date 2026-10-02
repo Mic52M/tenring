@@ -21,8 +21,10 @@ import numpy as np
 from .metrics import Metrics
 
 # View-dependent metrics whose absolute value we don't trust across sessions.
+# Includes the feet metrics: from a frontal webcam the hip-vs-ankle offset has a
+# systematic bias, so we judge deviation from the shooter's own session median.
 KEYS = ["torso_lean", "shoulder_elevation", "arm_extension",
-        "wrist_alignment", "head_tilt"]
+        "wrist_alignment", "head_tilt", "stance_width", "weight_balance"]
 
 
 class SessionBaseline:

@@ -112,8 +112,10 @@ def _chart_timeline(records: list, shots: list) -> str:
 
 
 def _chart_stability(records: list, ref: dict) -> Optional[str]:
+    # Only the HOLD phase is real aiming stability; the rest is the arm still
+    # rising/settling and would wildly inflate the tremor.
     pts = [(r["t"], r["wrist_jitter"]) for r in records
-           if r.get("wrist_jitter") is not None]
+           if r.get("wrist_jitter") is not None and r.get("in_hold")]
     if len(pts) < 5:
         return None
     t, jit = zip(*pts)
@@ -124,7 +126,7 @@ def _chart_stability(records: list, ref: dict) -> Optional[str]:
     ax.axhline(s["wrist_jitter_bad"], color=_BAD, linestyle="--", linewidth=1)
     ax.set_xlabel("tempo (s)")
     ax.set_ylabel("tremore polso")
-    ax.set_title("Stabilità (tremore in mira, piano frontale) — più basso è meglio")
+    ax.set_title("Stabilità in HOLD (tremore, piano frontale) — più basso è meglio")
     _style(ax)
     return _fig_to_b64(fig)
 
@@ -217,9 +219,12 @@ def _chart_shot_consistency(shots: list) -> Optional[str]:
     return _fig_to_b64(fig)
 
 
+MIN_SHOTS = 3  # fewer than this is too weak to judge repeatability
+
+
 def _consistency_faults(summary, n: int = 3) -> list:
     """Rank metrics by shot-to-shot spread relative to their notable std."""
-    if not summary or summary.n_shots < 2:
+    if not summary or summary.n_shots < MIN_SHOTS:
         return []
     ranked = []
     for k, label in METRIC_LABELS.items():
@@ -234,8 +239,8 @@ def _consistency_faults(summary, n: int = 3) -> list:
 
 def _verdict_consistency(summary, ref: dict) -> tuple:
     """Verdict from repeatability + stability (the reliable signals)."""
-    if not summary or summary.n_shots < 2:
-        return ("Servono più colpi per il verdetto", _WARN, 0)
+    if not summary or summary.n_shots < MIN_SHOTS:
+        return (f"Servono almeno {MIN_SHOTS} colpi per il verdetto", _WARN, 0)
     # consistency: 1 = every metric well within its notable std
     ratios = []
     for k in METRIC_LABELS:
@@ -295,13 +300,15 @@ def build_report(records: list, shots: list, summary, ref: dict,
                               f"<td>{std:.2f}</td></tr>")
     n_shots = summary.n_shots if summary else 0
 
-    if summary and summary.n_shots >= 2:
+    if summary and summary.n_shots >= MIN_SHOTS:
         top_html = "".join(
             f'<li><b>{name}</b> — poco ripetibile: varia di ±{std:.2f} tra i colpi</li>'
             for name, std in top) or "<li>Ottima ripetibilità colpo-su-colpo 👌</li>"
     else:
-        top_html = ("<li>Servono almeno 2 colpi per l'analisi di ripetibilità. "
-                    "Esegui il ciclo: alza il braccio, mira, spara, abbassa.</li>")
+        have = summary.n_shots if summary else 0
+        top_html = (f"<li>Servono almeno {MIN_SHOTS} colpi per l'analisi di "
+                    f"ripetibilità (ne ho rilevati {have}). Esegui più cicli: "
+                    "alza il braccio, mira, spara, abbassa.</li>")
 
     # Metrics never reliably in frame -> not judged (honest reporting).
     not_eval = [label for k, label in METRIC_LABELS.items() if k not in dist]

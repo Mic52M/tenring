@@ -142,6 +142,9 @@ def compute(pose: PoseResult, handedness: str = "right") -> Metrics:
         m.head_tilt = _fold_tilt(G.line_tilt_deg(img[KP.LEFT_EYE], img[KP.RIGHT_EYE]))
     elif _seen(pose, KP.LEFT_EAR, 0.4) and _seen(pose, KP.RIGHT_EAR, 0.4):
         m.head_tilt = _fold_tilt(G.line_tilt_deg(img[KP.LEFT_EAR], img[KP.RIGHT_EAR]))
+    # Reject implausible head roll (>35 deg) as landmark noise, not a real tilt.
+    if np.isfinite(m.head_tilt) and abs(m.head_tilt) > 35.0:
+        m.head_tilt = float("nan")
 
     # --- 6+7. Stance width & weight balance — THEORY §2 ---
     # ONLY if both feet are actually in frame (not extrapolated off-screen).
