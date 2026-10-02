@@ -18,6 +18,15 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
+# Clean, consistent chart typography to match the dashboard.
+matplotlib.rcParams.update({
+    "font.family": "DejaVu Sans",
+    "font.size": 9,
+    "axes.titlesize": 10,
+    "axes.titleweight": "bold",
+    "figure.dpi": 110,
+})
+
 METRIC_LABELS = {
     "torso_lean": "Inclinazione busto",
     "shoulder_elevation": "Spalla arma",
@@ -29,9 +38,11 @@ METRIC_LABELS = {
 }
 ANGLE_KEYS = ["torso_lean", "arm_extension", "wrist_alignment", "head_tilt"]
 
-_BG = "#0f1216"
+_BG = "#141821"       # matches the card background for seamless charts
 _FG = "#e6e6e6"
-_OK, _WARN, _BAD = "#4fc36b", "#f2c14e", "#e8503a"
+_GRID = "#232a35"
+_OK, _WARN, _BAD = "#4ade80", "#facc15", "#f87171"
+_ACCENT = "#38bdf8"
 
 
 def _fig_to_b64(fig) -> str:
@@ -44,13 +55,16 @@ def _fig_to_b64(fig) -> str:
 
 def _style(ax):
     ax.set_facecolor(_BG)
-    for s in ax.spines.values():
-        s.set_color("#3a3f47")
-    ax.tick_params(colors=_FG, labelsize=8)
-    ax.yaxis.label.set_color(_FG)
-    ax.xaxis.label.set_color(_FG)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    for s in ("left", "bottom"):
+        ax.spines[s].set_color("#3a4150")
+    ax.tick_params(colors="#9aa3ad", labelsize=8, length=3)
+    ax.yaxis.label.set_color("#9aa3ad")
+    ax.xaxis.label.set_color("#9aa3ad")
     ax.title.set_color(_FG)
-    ax.grid(True, color="#242830", linewidth=0.6)
+    ax.grid(True, axis="y", color=_GRID, linewidth=0.7)
+    ax.set_axisbelow(True)
 
 
 # --- fault distribution per metric (fraction of frames ok/warn/bad) ----------
@@ -103,7 +117,7 @@ def _chart_timeline(records: list, shots: list) -> str:
         axes = [axes]
     for ax, k in zip(axes, keys):
         vals = [r.get(k) if r.get(k) is not None else np.nan for r in records]
-        ax.plot(t, vals, color="#5aa9e6", linewidth=1.2)
+        ax.plot(t, vals, color=_ACCENT, linewidth=1.3)
         ax.set_ylabel(METRIC_LABELS[k], fontsize=8)
         _style(ax)
     axes[-1].set_xlabel("tempo (s) — solo fasi in mira")
@@ -394,18 +408,24 @@ _HEAD = """<!doctype html><html lang="it"><head><meta charset="utf-8">
 <style>
 :root{--bg:#0f1216;--fg:#e6e6e6;--muted:#9aa3ad;--card:#171b21;--line:#2a2f37;--accent:#5aa9e6}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);
-font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.5}
-.wrap{max-width:900px;margin:0 auto;padding:24px 16px 60px}
-h1{font-size:22px;margin:0 0 4px}
+body{margin:0;background:
+radial-gradient(1200px 600px at 80% -10%,rgba(56,189,248,.08),transparent 60%),var(--bg);
+color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',Roboto,sans-serif;
+line-height:1.5;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+.wrap{max-width:900px;margin:0 auto;padding:28px 18px 70px}
+h1{font-size:24px;margin:0 0 4px;letter-spacing:-.01em;font-weight:700}
+h1 b{color:var(--accent)}
 .muted{color:var(--muted);font-size:13px}
-.hero{display:flex;gap:18px;align-items:center;background:var(--card);
-border:1px solid var(--line);border-radius:14px;padding:18px;margin:18px 0}
-.score{font-size:40px;font-weight:700}
-.verdict{font-size:20px;font-weight:600}
+.hero{position:relative;display:flex;gap:20px;align-items:center;overflow:hidden;
+background:linear-gradient(180deg,#191e28,#141820);
+border:1px solid var(--line);border-radius:16px;padding:20px 22px;margin:18px 0}
+.hero::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--accent)}
+.score{font-size:46px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.verdict{font-size:21px;font-weight:650}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin:12px 0}
-.stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
-.stat .n{font-size:22px;font-weight:700}.stat .l{color:var(--muted);font-size:12px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:13px 14px}
+.stat .n{font-size:23px;font-weight:700;font-variant-numeric:tabular-nums}
+.stat .l{color:var(--muted);font-size:12px;margin-top:2px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin:14px 0}
 .card img{width:100%;display:block;border-radius:8px}
 h2{font-size:14px;margin:20px 0 8px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
@@ -423,8 +443,10 @@ cursor:pointer;font-size:14px;transition:.12s}
 .shotlist button.active{border-color:var(--accent);background:#1c2430;box-shadow:inset 3px 0 0 var(--accent)}
 .detail{min-height:200px}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
-.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
-.kpi .n{font-size:20px;font-weight:700}.kpi .l{color:var(--muted);font-size:12px}
+.kpi{background:linear-gradient(180deg,#191e28,#141820);border:1px solid var(--line);
+border-radius:12px;padding:13px 14px}
+.kpi .n{font-size:21px;font-weight:750;font-variant-numeric:tabular-nums}
+.kpi .l{color:var(--muted);font-size:12px;margin-top:2px}
 .phasebar{display:flex;height:26px;border-radius:7px;overflow:hidden;margin:6px 0 2px;border:1px solid var(--line)}
 .phasebar span{display:flex;align-items:center;justify-content:center;font-size:11px;color:#0c0f13;font-weight:600;min-width:0;overflow:hidden;white-space:nowrap}
 .legend{font-size:12px;color:var(--muted);display:flex;gap:14px;flex-wrap:wrap}
@@ -432,7 +454,7 @@ cursor:pointer;font-size:14px;transition:.12s}
 .foot{color:var(--muted);font-size:12px;margin-top:30px}
 @media(max-width:640px){.layout{grid-template-columns:1fr}}
 </style></head><body><div class="wrap">
-<h1>tenring — resoconto sessione</h1>"""
+<h1><b>tenring</b> — resoconto sessione</h1>"""
 
 _FOOT = """<div class="foot">Generato da tenring · valutazione sulla TUA postura di
 sessione (deviazione dal tuo assetto), con guardrail dalla teoria del tiro 10 m

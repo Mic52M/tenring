@@ -116,13 +116,9 @@ def main() -> None:
             else:
                 findings = engine.evaluate(m)
 
-            overlay.draw_skeleton(frame, pose)
-            overlay.draw_panel(frame, findings, fs, ref,
-                               fps=fps, n_shots=len(sm.shots),
-                               armed_side=armed_side,
-                               state_label=fs.label, aiming=fs.analyze)
-            overlay.draw_banner(frame, findings, fs,
-                                aiming=fs.analyze, state_label=fs.label)
+            overlay.draw_skeleton(frame, pose, armed_side=armed_side)
+            overlay.draw_hud(frame, findings, fs, ref,
+                             fps=fps, n_shots=len(sm.shots), armed_side=armed_side)
 
             dt = now - prev
             prev = now
