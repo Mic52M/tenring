@@ -45,8 +45,11 @@ def parse_args():
                     help="effetto specchio (default: attivo)")
     ap.add_argument("--no-mirror", dest="mirror", action="store_false",
                     help="disattiva l'effetto specchio (per camera di profilo)")
-    ap.add_argument("--width", type=int, default=1280)
-    ap.add_argument("--height", type=int, default=720)
+    ap.add_argument("--width", type=int, default=1920,
+                    help="risoluzione cattura (default 1920 per un HUD nitido)")
+    ap.add_argument("--height", type=int, default=1080)
+    ap.add_argument("--fullscreen", action="store_true",
+                    help="apri a schermo intero (riempie, niente bande nere)")
     ap.add_argument("--complexity", type=int, default=1, choices=[0, 1, 2],
                     help="MediaPipe model complexity (0 fast .. 2 accurate)")
     return ap.parse_args()
@@ -79,6 +82,8 @@ def main() -> None:
 
     win = "tenring"
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)
+    if args.fullscreen:
+        cv2.setWindowProperty(win, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
     recorder = SessionRecorder()
     arm = ArmSelector(default=handedness)
     baseline = SessionBaseline(prior=(profile or {}).get("neutral"))

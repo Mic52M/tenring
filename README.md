@@ -47,12 +47,21 @@ Concedi al terminale l'accesso alla fotocamera:
 
 ## Uso — semplice
 
-Un comando. Sceglie la webcam del Mac da solo (salta l'iPhone/Continuity Camera),
-apre la finestra, premi **Q** per uscire.
+Avvio rapido (attiva l'env e parte a schermo intero):
 
 ```bash
-tenring
+./run.sh
 ```
+
+Oppure, se l'env conda `tenring` è già attivo:
+
+```bash
+tenring                 # finestra
+tenring --fullscreen    # schermo intero (niente bande nere)
+```
+
+Sceglie la webcam del Mac da solo (salta l'iPhone/Continuity Camera). Premi **Q**
+per uscire. Per più fps a scapito della nitidezza: `./run.sh --width 1280 --height 720`.
 
 - **Analizza solo quando sei in posizione**: una macchina a stati riconosce il ciclo
   di tiro (in attesa → in posizione → mira/HOLD → colpo) e valuta/registra **solo**
