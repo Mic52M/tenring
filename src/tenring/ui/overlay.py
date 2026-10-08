@@ -15,6 +15,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from ..pose.base import KP, PoseResult
 from ..analysis.rules import Finding, Status
+from .. import i18n
 
 # ---------------------------------------------------------------- palette ----
 C_PANEL = (15, 18, 24, 210)      # dark glass
@@ -124,7 +125,7 @@ def _pill(draw, box, color, radius=14):
 
 # ---------------------------------------------------------------- HUD --------
 def draw_hud(frame: np.ndarray, findings, fs, ref: dict, fps: float = 0.0,
-             n_shots: int = 0, armed_side: str = "") -> None:
+             n_shots: int = 0, armed_side: str = "", lang: str = "it") -> None:
     """Composite the full premium HUD onto the frame (in place).
 
     All sizes scale with frame height so the HUD stays crisp at any resolution
@@ -142,7 +143,8 @@ def draw_hud(frame: np.ndarray, findings, fs, ref: dict, fps: float = 0.0,
 
     aiming = getattr(fs, "analyze", False) or getattr(fs, "in_hold", False)
     in_hold = getattr(fs, "in_hold", False)
-    state_label = getattr(fs, "label", "")
+    state_label = fs.label(lang) if hasattr(fs, "label") else ""
+    U = lambda k, **kw: i18n.ui(k, lang, **kw)
 
     m = S(12)                       # outer margin
     PW = S(320)
@@ -160,7 +162,7 @@ def draw_hud(frame: np.ndarray, findings, fs, ref: dict, fps: float = 0.0,
     y += S(42)
 
     st_col = C_OK if in_hold else (C_ACCENT if aiming else C_WARN)
-    label = state_label or ("In posizione" if aiming else "In attesa")
+    label = state_label or (U("hud_inpos") if aiming else U("hud_waiting"))
     _pill(d, [x, y, PW - pad, y + S(30)], (st_col[0], st_col[1], st_col[2], 38),
           radius=S(14))
     d.ellipse([x + S(10), y + S(11), x + S(18), y + S(19)], fill=st_col)
@@ -168,8 +170,8 @@ def draw_hud(frame: np.ndarray, findings, fs, ref: dict, fps: float = 0.0,
     y += S(40)
 
     if armed_side:
-        arm_lbl = "destro" if armed_side == "right" else "sinistro"
-        d.text((x, y), f"Braccio arma: {arm_lbl}", font=_font(S(12)), fill=C_MUTED)
+        arm_lbl = U("hud_right") if armed_side == "right" else U("hud_left")
+        d.text((x, y), f"{U('hud_arm')}: {arm_lbl}", font=_font(S(12)), fill=C_MUTED)
     y += S(24)
     d.line([x, y, PW - pad, y], fill=C_STROKE, width=1)
     y += S(14)
@@ -178,7 +180,7 @@ def draw_hud(frame: np.ndarray, findings, fs, ref: dict, fps: float = 0.0,
     f_val = _font(S(14), mono=True)
     f_cue = _font(S(12))
     if not aiming:
-        d.text((x, y), "Analisi in pausa", font=_font(S(13)), fill=C_MUTED)
+        d.text((x, y), U("hud_paused"), font=_font(S(13)), fill=C_MUTED)
         y += S(24)
     for fnd in findings:
         if not aiming and fnd.status == Status.NA:
@@ -206,25 +208,25 @@ def draw_hud(frame: np.ndarray, findings, fs, ref: dict, fps: float = 0.0,
         jtxt = f"{jit:.3f}"
     else:
         jc, jtxt = C_MUTED, "—"
-    d.text((x, by), "Tremore", font=_font(S(12)), fill=C_MUTED)
+    d.text((x, by), U("hud_tremor"), font=_font(S(12)), fill=C_MUTED)
     d.text((x, by + S(15)), jtxt, font=_font(S(20), mono=True), fill=jc)
-    d.text((x + S(150), by), "Colpi", font=_font(S(12)), fill=C_MUTED)
+    d.text((x + S(150), by), U("hud_shots"), font=_font(S(12)), fill=C_MUTED)
     d.text((x + S(150), by + S(15)), str(n_shots), font=_font(S(20), mono=True), fill=C_TEXT)
-    d.text((x, h - m - pad + S(6)), f"[Q] esci     [S] salva     {fps:.0f} fps",
+    d.text((x, h - m - pad + S(6)), U("hud_help", fps=f"{fps:.0f}"),
            font=_font(S(11)), fill=C_MUTED)
 
     # ---- top banner ----
     bx0, bx1 = PW + S(16), w - S(16)
     if bx1 - bx0 > S(160):
-        _banner(d, bx0, m, bx1, m + S(70), findings, aiming, in_hold, state_label, S)
+        _banner(d, bx0, m, bx1, m + S(70), findings, aiming, in_hold, state_label, S, U)
 
     frame[:] = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
 
-def _banner(d, x0, y0, x1, y1, findings, aiming, in_hold, state_label, S):
+def _banner(d, x0, y0, x1, y1, findings, aiming, in_hold, state_label, S, U):
     if not aiming:
         col = C_ACCENT
-        text = state_label or "In attesa"
+        text = state_label or U("hud_waiting")
         sub = None
     else:
         worst = None
@@ -238,7 +240,7 @@ def _banner(d, x0, y0, x1, y1, findings, aiming, in_hold, state_label, S):
                     worst = f
                     break
         if worst is None:
-            col, text, sub = C_OK, "Postura corretta", "sei in linea"
+            col, text, sub = C_OK, U("hud_ok"), U("hud_ok_sub")
         else:
             col = _STATUS_RGB[worst.status]
             text = worst.cue

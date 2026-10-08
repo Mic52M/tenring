@@ -1,222 +1,206 @@
 <div align="center">
 
-# 🎯 tenring
+# tenring
 
-**Analisi posturale in tempo reale per il tiro a 10 m con pistola ad aria compressa (ISSF).**
+**Real-time posture analysis for 10 m air pistol shooting (ISSF).**
 
-Una webcam, nessuna GPU, feedback live mentre tiri e un resoconto per colpo a fine sessione.
+One webcam, no GPU: live feedback while you shoot and a per-shot report afterwards.
 
-![HUD live](docs/images/hud.png)
+![Live HUD](docs/images/hud.png)
 
 </div>
 
 ---
 
-## Cos'è
+## What it is
 
-**tenring** usa la computer vision per guardare il *corpo* del tiratore — non il mirino — e
-dire, colpo dopo colpo, dove la postura si allontana dal tuo assetto e quanto sei
-**ripetibile**. Perché nel tiro di precisione la bravura non è la posa perfetta di un
-singolo colpo: è farla **identica** ogni volta.
+**tenring** uses computer vision to watch the shooter's *body* — not the sights — and tell
+you, shot after shot, where your posture drifts from your own setup and how **repeatable**
+you are. In precision shooting the skill isn't a single perfect stance: it's doing the same
+thing **every time**.
 
-- 🧍 **Tracking del corpo** con [MediaPipe BlazePose](https://developers.google.com/mediapipe) (33 keypoint 3D).
-- 🟢 **Feedback live** a semaforo: inclinazione busto, spalla, braccio, polso, testa, piedi, bilanciamento, tremore.
-- 🔁 **Ciclo di tiro** riconosciuto da solo: *alza il braccio → mira → HOLD → spara → abbassa / ricarica*.
-- 📊 **Report per colpo**: tempi di ogni fase, elevazione del braccio, tremore, ripetibilità.
-- 💻 Gira in tempo reale su un **MacBook Air M4**, solo CPU/Neural Engine. **Nessuna GPU esterna.**
+- Body tracking with [MediaPipe BlazePose](https://developers.google.com/mediapipe) (33 3D keypoints).
+- Live traffic-light feedback: torso lean, shoulder, arm, wrist, head, feet, balance, tremor.
+- The shot cycle is recognised automatically: *raise the arm, aim, HOLD, fire, lower / reload*.
+- Per-shot report: duration of each phase, arm elevation, tremor, repeatability.
+- Runs in real time on a **MacBook Air M4**, CPU / Neural Engine only. **No external GPU.**
 
-> **Non sostituisce** [SCATT](https://www.scatt.com/) & co.: quelli tracciano il *mirino*.
-> tenring analizza il **corpo**, che è la parte scoperta — e sono complementari.
-
----
-
-## Screenshot
-
-### HUD live
-Pannello sinistro con stato, braccio armato (evidenziato in azzurro) e metriche a semaforo;
-banner in alto con la **correzione prioritaria** del momento, leggibile mentre miri.
-
-![HUD](docs/images/hud.png)
-
-### Dashboard — panoramica di sessione
-![Dashboard panoramica](docs/images/dashboard_overview.jpg)
-
-### Dashboard — dettaglio per colpo
-Clicchi un colpo a sinistra e vedi **tempi di ogni fase** (salita+mira / hold / discesa),
-**picco di elevazione** del braccio vs l'assestamento in mira, tremore e postura all'istante
-più fermo.
-
-![Dashboard colpo](docs/images/dashboard_shot.jpg)
+> It does **not** replace optical trainers like [SCATT](https://www.scatt.com/): those track
+> the *sights*. tenring analyses the **body**, which is the uncovered part — they are complementary.
 
 ---
 
-## Come funziona
+## Screenshots
 
-Pipeline per frame, ~real-time:
+### Session dashboard
+Click a shot on the left to see the timing of each phase, peak arm elevation vs the settle on
+aim, tremor and the posture at the steadiest instant.
+
+![Dashboard overview](docs/images/dashboard_overview.jpg)
+
+---
+
+## How it works
+
+Per-frame pipeline, ~real-time:
 
 ```
-webcam → MediaPipe BlazePose → metriche geometriche → regole (semaforo)
-        → macchina a stati del ciclo di tiro → HUD live
-                                             → log per-frame → report HTML
+webcam -> MediaPipe BlazePose -> geometric metrics -> rules (traffic light)
+        -> shot-cycle state machine -> live HUD
+                                     -> per-frame log -> HTML report
 ```
 
-Tre scelte rendono l'analisi **affidabile** con una sola webcam:
+Three choices make the analysis **reliable** with a single webcam:
 
-1. **Riconosce il braccio che spara** — quello alzato ed esteso — invece di fidarsi di una
-   configurazione fissa (robusto a destrimane/mancino e all'effetto specchio).
-2. **Valuta solo ciò che vede** — se i piedi non sono inquadrati, non li giudica (niente
-   verdetti inventati).
-3. **Riferimento = la *tua* postura di sessione**, non angoli assoluti da manuale: gli angoli
-   3D da webcam frontale "derivano" tra sessioni, mentre entro la sessione sei stabilissimo.
-   Quindi tenring misura la **deviazione dal tuo assetto** e la **ripetibilità** — le cose
-   davvero misurabili e che contano nel tiro.
+1. **It detects the shooting arm** — the one raised and extended — instead of trusting a fixed
+   setting (robust to right/left-handed shooters and to the mirror effect).
+2. **It only judges what it can see** — if the feet aren't in frame, it doesn't grade them
+   (no made-up verdicts).
+3. **The reference is *your own* session posture**, not textbook absolute angles: 3D angles
+   from a frontal webcam drift between sessions, while within a session you are very stable.
+   So tenring measures the **deviation from your setup** and your **repeatability** — the
+   things that are actually measurable and that matter in shooting.
 
-E riconosce il **ciclo di tiro** con una macchina a stati:
+It also recognises the **shot cycle** with a state machine:
 
-| Stato | Quando | Analizza? |
+| State | When | Analysed? |
 |---|---|---|
-| `IDLE` | corpo non inquadrato | ❌ |
-| `READY` | in piedi, braccio giù | ❌ |
-| `AIMING` | braccio alzato ed esteso | ✅ |
-| `HOLD` | in mira e fermo | ✅ (misura il tremore) |
-| `RELEASE` | braccio che scende dopo lo sparo / ricarica | ❌ |
+| `IDLE` | body not in frame | no |
+| `READY` | standing, arm down | no |
+| `AIMING` | arm raised and extended | yes |
+| `HOLD` | on aim and steady | yes (measures tremor) |
+| `RELEASE` | arm coming down after the shot / reload | no |
 
-Un **colpo** = salita → hold stabile → discesa. La postura del colpo è catturata
-all'**istante più fermo** dell'hold.
+A **shot** = raise -> steady hold -> lower. The shot's posture is captured at the
+**steadiest instant** of the hold.
 
 ---
 
-## Cosa misura (ancorato alla letteratura)
+## What it measures
 
-Ogni metrica fa riferimento a un punto di [`docs/THEORY.md`](docs/THEORY.md), basato sulla
-manualistica ISSF e sulla biomeccanica del 10 m aria compressa.
+Every metric maps to a section of [`docs/THEORY.md`](docs/THEORY.md), based on ISSF
+coaching material and the biomechanics of 10 m air pistol.
 
-| Metrica | Difetto tipico | Rif. |
+| Metric | Typical fault | Ref. |
 |---|---|---|
-| Inclinazione busto | inclinarsi troppo all'indietro | §2 |
-| Spalla arma | spalla alzata/contratta o troppo molle | §3 |
-| Estensione braccio | braccio troppo flesso / bloccato | §3 |
-| Polso | polso non allineato all'avambraccio | §4 |
-| Testa | testa inclinata / ruotata | §5 |
-| Apertura piedi | base troppo stretta/larga | §2 |
-| Bilanciamento | peso sbilanciato su un piede | §2 |
-| Elevazione braccio | quanto sali sopra il bersaglio e come ti assesti (~90°) | §6b |
-| Tremore (hold) | oscillazione in fase di mira (piano frontale) | §6 |
-| Ripetibilità | varianza colpo-su-colpo | §7 |
+| Torso lean | leaning back too much | §2 |
+| Shooting shoulder | shoulder raised/tense or too loose | §3 |
+| Arm extension | arm too bent / locked | §3 |
+| Wrist | wrist not aligned with the forearm | §4 |
+| Head | head tilted / rotated | §5 |
+| Stance width | base too narrow/wide | §2 |
+| Weight balance | weight shifted onto one foot | §2 |
+| Arm elevation | how high you go above the target and how you settle (~90°) | §6b |
+| Tremor (hold) | wobble while aiming (frontal plane) | §6 |
+| Repeatability | shot-to-shot variance | §7 |
 
 ---
 
-## Installazione (macOS, Apple Silicon)
+## Installation (macOS, Apple Silicon)
 
 ```bash
 git clone https://github.com/Mic52M/tenring.git
 cd tenring
 
-# Ambiente consigliato: Python 3.11/3.12
+# Recommended: Python 3.11/3.12
 conda create -n tenring python=3.12 -y
 conda activate tenring
 pip install -r requirements.txt
 pip install -e .
 ```
 
-Concedi al terminale l'accesso alla fotocamera:
-**Impostazioni di sistema → Privacy e sicurezza → Fotocamera**.
+Grant the terminal camera access: **System Settings -> Privacy & Security -> Camera**.
 
-> MediaPipe è pinnato a `0.10.21` (la 1.x ha un bug del PoseLandmarker su macOS arm64).
-> Il modello `.task` viene scaricato automaticamente al primo avvio.
+> MediaPipe is pinned to `0.10.21` (the 1.x line has a PoseLandmarker bug on macOS arm64).
+> The `.task` model is downloaded automatically on first run.
 
 ---
 
-## Uso
+## Usage
 
-Avvio rapido (attiva l'env e parte a schermo intero):
+Quick start (activates the env and launches fullscreen):
 
 ```bash
 ./run.sh
 ```
 
-Calibrazione personale (opzionale, una volta — mettiti in posizione di tiro, braccio su):
+Personal calibration (optional, once — get into your shooting position, arm up):
 
 ```bash
 ./calibra.sh
 ```
 
-Oppure, con l'env `tenring` attivo:
+Or, with the `tenring` env active:
 
 ```bash
-tenring                 # finestra
-tenring --fullscreen    # schermo intero
-tenring --list-cameras  # scegli la webcam giusta (salta l'iPhone/Continuity)
+tenring                 # windowed
+tenring --fullscreen    # fullscreen, no black bars
+tenring --list-cameras  # pick the right webcam (skips the iPhone/Continuity camera)
 ```
 
-**Comandi a schermo:** `Q` esci · `S` salva un report al volo.
-A fine sessione si apre da solo il report HTML (in `sessions/`), con `.jsonl` grezzo e `.txt`.
+**On-screen keys:** `Q` quit, `S` save a report on the fly.
+When the session ends the HTML report opens automatically (in `sessions/`), alongside the raw
+`.jsonl` and a `.txt` summary.
 
-| Opzione | Effetto |
+| Option | Effect |
 |---|---|
-| `--camera N` | forza una webcam specifica |
-| `--fullscreen` | schermo intero, niente bande nere |
-| `--no-mirror` | disattiva l'effetto specchio (per camera di profilo) |
-| `--width 1280 --height 720` | più fps a scapito della nitidezza |
-| `--complexity {0,1,2}` | modello pose: 0 veloce … 2 preciso |
+| `--camera N` | force a specific webcam |
+| `--fullscreen` | fullscreen, no black bars |
+| `--no-mirror` | disable the mirror effect (for a side camera) |
+| `--width 1280 --height 720` | more fps, less resolution |
+| `--complexity {0,1,2}` | pose model: 0 fast ... 2 accurate |
 
-Setup consigliato per l'MVP: **webcam a sinistra**, inquadratura piena **dai piedi alla testa**.
+The language of the HUD and report follows `feedback_language` in `config/reference.yaml`
+(`it` or `en`).
+
+Recommended MVP setup: **webcam on your left**, full framing **from feet to head**.
 
 ---
 
-## Architettura
+## Architecture
 
 ```
 src/tenring/
-  pose/        backend pose estimation astratto (+ MediaPipe BlazePose)
-  analysis/    geometry · metrics · rules · state (ciclo di tiro) ·
-               arm (rilevamento braccio) · baseline (riferimento di sessione) ·
-               session · recorder
-  ui/          overlay.py  — HUD live (Pillow, font San Francisco)
-  report/      html_report.py — report interattivo per colpo
-  app.py       loop live    ·    calibrate.py  calibrazione personale
+  pose/        abstract pose-estimation backend (+ MediaPipe BlazePose)
+  analysis/    geometry, metrics, rules, state (shot cycle),
+               arm (shooting-arm detection), baseline (session reference),
+               session, recorder
+  ui/          overlay.py  - live HUD (Pillow, San Francisco font)
+  report/      html_report.py - interactive per-shot report
+  i18n.py      Italian / English strings
+  app.py       live loop    ·    calibrate.py  personal calibration
 config/
-  reference.yaml   soglie ancorate alla teoria (§ in docs/THEORY.md)
-  profile.yaml     (generato) il tuo neutro calibrato
-docs/THEORY.md     base tecnica del tiro a 10 m
+  reference.yaml   thresholds tied to the theory (§ in docs/THEORY.md)
+  profile.yaml     (generated) your calibrated neutral
+docs/THEORY.md     technical basis of 10 m shooting
 ```
 
-Il backend di pose è dietro un'interfaccia astratta: si può sostituire MediaPipe con
-**RTMPose / YOLO-pose / ViTPose** senza toccare l'analisi.
-
----
-
-## Limiti (onesti)
-
-- **Una sola camera** → ottima sul piano che inquadra; la quadratura spalle / rotazione busto
-  e il tremore in profondità richiedono una seconda camera (fase 2).
-- **Non misura la mira/mirino** né lo scatto del grilletto: è il dominio dei sistemi ottici (SCATT).
-- Gli **angoli assoluti** da webcam non sono affidabili tra sessioni → si valuta la deviazione
-  dal proprio assetto e la ripetibilità (vedi *Come funziona*).
+The pose backend sits behind an abstract interface, so MediaPipe can be swapped for
+**RTMPose / YOLO-pose / ViTPose** without touching the analysis.
 
 ---
 
 ## Roadmap
 
-- [ ] Audio dello scatto per conteggio esatto dei colpi e distinzione colpo/ricarica.
-- [ ] Coach in linguaggio naturale (LLM) sul report, a partire dalle metriche.
-- [ ] Seconda camera (fase 2) per quadratura spalle e tremore 3D.
-- [ ] Trend tra sessioni (dai `.jsonl` già salvati).
+- [ ] Shot audio for exact shot counting and shot/reload disambiguation.
+- [ ] Natural-language coach (LLM) in the report, built from the metrics.
+- [ ] Second camera (phase 2) for shoulder squareness and 3D tremor.
+- [ ] Cross-session trends (from the saved `.jsonl`).
 
 ---
 
-## Test
+## Tests
 
 ```bash
 pip install pytest && pytest
 ```
 
-## Licenza
+## License
 
 MIT.
 
 ---
 
 <div align="center">
-<sub>Progetto personale di allenamento. Non è un dispositivo di misura certificato.</sub>
+<sub>Personal training project. Not a certified measurement device.</sub>
 </div>

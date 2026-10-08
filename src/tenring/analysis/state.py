@@ -25,6 +25,7 @@ import numpy as np
 
 from .metrics import Metrics
 from .phases import ShotEvent
+from .. import i18n
 
 
 class State(str, Enum):
@@ -33,15 +34,6 @@ class State(str, Enum):
     AIMING = "AIMING"
     HOLD = "HOLD"
     RELEASE = "RELEASE"   # post-shot: arm coming down to reload -> NOT analysed
-
-
-_LABEL = {
-    State.IDLE: "In attesa (corpo non inquadrato)",
-    State.READY: "Mettiti in posizione di tiro",
-    State.AIMING: "In posizione — analisi attiva",
-    State.HOLD: "HOLD (in mira, fermo)",
-    State.RELEASE: "Colpo fatto — abbassa / ricarica",
-}
 
 
 @dataclass
@@ -58,9 +50,8 @@ class FrameState:
     def is_aiming(self) -> bool:
         return self.state in (State.AIMING, State.HOLD)
 
-    @property
-    def label(self) -> str:
-        return _LABEL[self.state]
+    def label(self, lang: str = "it") -> str:
+        return i18n.state_label(self.state.value, lang)
 
 
 class StateMachine:

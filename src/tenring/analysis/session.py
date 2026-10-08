@@ -11,17 +11,11 @@ from typing import Optional
 import numpy as np
 
 from .phases import ShotEvent
+from .. import i18n
 
 
-METRIC_LABELS = {
-    "torso_lean": "Inclinazione busto",
-    "shoulder_elevation": "Spalla arma",
-    "arm_extension": "Estensione braccio",
-    "wrist_alignment": "Polso",
-    "head_tilt": "Testa",
-    "stance_width": "Apertura piedi",
-    "weight_balance": "Bilanciamento",
-}
+METRIC_KEYS = ["torso_lean", "shoulder_elevation", "arm_extension",
+               "wrist_alignment", "head_tilt", "stance_width", "weight_balance"]
 
 
 @dataclass
@@ -32,21 +26,28 @@ class SessionSummary:
     consistency: dict           # metric -> std across shots (lower = better)
     means: dict                 # metric -> mean across shots
 
-    def to_text(self, ref: dict) -> str:
-        lines = ["=" * 52, f" RESOCONTO SESSIONE — {self.n_shots} colpi rilevati", "=" * 52]
+    def to_text(self, ref: dict, lang: str = "it") -> str:
+        head = (f" SESSION REPORT — {self.n_shots} shots" if lang == "en"
+                else f" RESOCONTO SESSIONE — {self.n_shots} colpi rilevati")
+        lines = ["=" * 52, head, "=" * 52]
         s = ref["stability"]
         jit = self.mean_wrist_jitter
         jflag = "OK" if jit <= s["wrist_jitter_warn"] else (
-            "ATTENZIONE" if jit <= s["wrist_jitter_bad"] else "ALTO")
-        lines.append(f" Tremore medio polso (hold): {jit:.4f}  [{jflag}]")
-        lines.append(f" Oscillazione corpo (sway):  {self.mean_sway:.4f}")
+            "WARN" if jit <= s["wrist_jitter_bad"] else "HIGH")
+        tr = "Mean wrist tremor (hold)" if lang == "en" else "Tremore medio polso (hold)"
+        sw = "Body sway" if lang == "en" else "Oscillazione corpo (sway)"
+        rep = ("Shot-to-shot repeatability (std, lower = better):" if lang == "en"
+               else "Ripetibilita' colpo-su-colpo (deviazione std, piu' basso = meglio):")
+        mean_w = "mean" if lang == "en" else "media"
+        lines.append(f" {tr}: {jit:.4f}  [{jflag}]")
+        lines.append(f" {sw}:  {self.mean_sway:.4f}")
         lines.append("-" * 52)
-        lines.append(" Ripetibilita' colpo-su-colpo (deviazione std, piu' basso = meglio):")
-        for k, label in METRIC_LABELS.items():
+        lines.append(f" {rep}")
+        for k in METRIC_KEYS:
             std = self.consistency.get(k, float("nan"))
             mean = self.means.get(k, float("nan"))
             if np.isfinite(std):
-                lines.append(f"   {label:<22} media={mean:7.2f}  std={std:6.2f}")
+                lines.append(f"   {i18n.metric_label(k, lang):<22} {mean_w}={mean:7.2f}  std={std:6.2f}")
         lines.append("=" * 52)
         return "\n".join(lines)
 
@@ -54,7 +55,7 @@ class SessionSummary:
 def summarize(shots: list[ShotEvent]) -> Optional[SessionSummary]:
     if not shots:
         return None
-    keys = list(METRIC_LABELS.keys())
+    keys = list(METRIC_KEYS)
     consistency, means = {}, {}
     for k in keys:
         vals = [s.metrics_mean.get(k, float("nan")) for s in shots]

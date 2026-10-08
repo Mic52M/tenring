@@ -18,6 +18,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
+from .. import i18n
+
 # Clean, consistent chart typography to match the dashboard.
 matplotlib.rcParams.update({
     "font.family": "DejaVu Sans",
@@ -27,16 +29,13 @@ matplotlib.rcParams.update({
     "figure.dpi": 110,
 })
 
-METRIC_LABELS = {
-    "torso_lean": "Inclinazione busto",
-    "shoulder_elevation": "Spalla arma",
-    "arm_extension": "Estensione braccio",
-    "wrist_alignment": "Polso",
-    "head_tilt": "Testa",
-    "stance_width": "Apertura piedi",
-    "weight_balance": "Bilanciamento",
-}
+METRIC_KEYS = ["torso_lean", "shoulder_elevation", "arm_extension",
+               "wrist_alignment", "head_tilt", "stance_width", "weight_balance"]
 ANGLE_KEYS = ["torso_lean", "arm_extension", "wrist_alignment", "head_tilt"]
+
+
+def _ml(k: str, lang: str) -> str:
+    return i18n.metric_label(k, lang)
 
 _BG = "#141821"       # matches the card background for seamless charts
 _FG = "#e6e6e6"
@@ -70,7 +69,7 @@ def _style(ax):
 # --- fault distribution per metric (fraction of frames ok/warn/bad) ----------
 def _fault_distribution(records: list) -> dict:
     dist = {}
-    for k in METRIC_LABELS:
+    for k in METRIC_KEYS:
         counts = {"ok": 0, "warn": 0, "bad": 0}
         for r in records:
             st = r.get("status", {}).get(k)
@@ -82,35 +81,32 @@ def _fault_distribution(records: list) -> dict:
     return dist
 
 
-def _chart_distribution(dist: dict) -> str:
-    keys = [k for k in METRIC_LABELS if k in dist]
+def _chart_distribution(dist: dict, lang: str) -> str:
+    keys = [k for k in METRIC_KEYS if k in dist]
     fig, ax = plt.subplots(figsize=(7.2, 3.2), facecolor=_BG)
     y = np.arange(len(keys))
     ok = [dist[k]["ok"] * 100 for k in keys]
     warn = [dist[k]["warn"] * 100 for k in keys]
     bad = [dist[k]["bad"] * 100 for k in keys]
-    ax.barh(y, ok, color=_OK, label="OK")
-    ax.barh(y, warn, left=ok, color=_WARN, label="Attenzione")
-    ax.barh(y, bad, left=np.add(ok, warn), color=_BAD, label="Errore")
+    ax.barh(y, ok, color=_OK, label=i18n.ui("lg_ok", lang))
+    ax.barh(y, warn, left=ok, color=_WARN, label=i18n.ui("lg_warn", lang))
+    ax.barh(y, bad, left=np.add(ok, warn), color=_BAD, label=i18n.ui("lg_bad", lang))
     ax.set_yticks(y)
-    ax.set_yticklabels([METRIC_LABELS[k] for k in keys])
-    ax.set_xlabel("% del tempo")
+    ax.set_yticklabels([_ml(k, lang) for k in keys])
+    ax.set_xlabel(i18n.ui("ch_dist_x", lang))
     ax.set_xlim(0, 100)
-    ax.set_title("Distribuzione difetti per metrica")
+    ax.set_title(i18n.ui("ch_dist", lang))
     ax.invert_yaxis()
     _style(ax)
     ax.legend(facecolor=_BG, edgecolor="#3a3f47", labelcolor=_FG, fontsize=7, loc="lower right")
     return _fig_to_b64(fig)
 
 
-def _chart_timeline(records: list, shots: list) -> str:
+def _chart_timeline(records: list, shots: list, lang: str) -> str:
     t = [r["t"] for r in records]
     keys = [k for k in ANGLE_KEYS if any(r.get(k) is not None for r in records)]
     if not keys:
         keys = ["torso_lean"]
-    shot_ts = [s.t_end for s in shots] if shots else []
-    # shots carry absolute time; align to the record timeline origin
-    t0_abs = shot_ts and min(shot_ts) or 0
     fig, axes = plt.subplots(len(keys), 1, figsize=(7.2, 1.5 * len(keys)),
                              facecolor=_BG, sharex=True)
     if len(keys) == 1:
@@ -118,15 +114,15 @@ def _chart_timeline(records: list, shots: list) -> str:
     for ax, k in zip(axes, keys):
         vals = [r.get(k) if r.get(k) is not None else np.nan for r in records]
         ax.plot(t, vals, color=_ACCENT, linewidth=1.3)
-        ax.set_ylabel(METRIC_LABELS[k], fontsize=8)
+        ax.set_ylabel(_ml(k, lang), fontsize=8)
         _style(ax)
-    axes[-1].set_xlabel("tempo (s) — solo fasi in mira")
-    axes[0].set_title("Timeline postura (fasi di mira)")
+    axes[-1].set_xlabel(i18n.ui("ch_time_x", lang))
+    axes[0].set_title(i18n.ui("ch_timeline", lang))
     fig.tight_layout()
     return _fig_to_b64(fig)
 
 
-def _chart_stability(records: list, ref: dict) -> Optional[str]:
+def _chart_stability(records: list, ref: dict, lang: str) -> Optional[str]:
     # Only the HOLD phase is real aiming stability; the rest is the arm still
     # rising/settling and would wildly inflate the tremor.
     pts = [(r["t"], r["wrist_jitter"]) for r in records
@@ -139,37 +135,11 @@ def _chart_stability(records: list, ref: dict) -> Optional[str]:
     ax.plot(t, jit, color="#b07cf0", linewidth=1.1)
     ax.axhline(s["wrist_jitter_warn"], color=_WARN, linestyle="--", linewidth=1)
     ax.axhline(s["wrist_jitter_bad"], color=_BAD, linestyle="--", linewidth=1)
-    ax.set_xlabel("tempo (s)")
-    ax.set_ylabel("tremore polso")
-    ax.set_title("Stabilità in HOLD (tremore, piano frontale) — più basso è meglio")
+    ax.set_xlabel(i18n.ui("ch_stab_x", lang))
+    ax.set_ylabel(i18n.ui("ch_stab_y", lang))
+    ax.set_title(i18n.ui("ch_stab", lang))
     _style(ax)
     return _fig_to_b64(fig)
-
-
-def _verdict(dist: dict, mean_jitter: float, ref: dict) -> tuple:
-    """Return (voto_testo, colore, punteggio_0_100)."""
-    if not dist:
-        return ("Dati insufficienti", _WARN, 0)
-    bad = np.mean([dist[k]["bad"] for k in dist])
-    warn = np.mean([dist[k]["warn"] for k in dist])
-    score = max(0.0, 100.0 * (1.0 - (bad * 1.0 + warn * 0.4)))
-    if score >= 80:
-        return ("Ottima postura", _OK, score)
-    if score >= 60:
-        return ("Buona, con margini", _WARN, score)
-    return ("Da migliorare", _BAD, score)
-
-
-def _top_faults(dist: dict, n: int = 3) -> list:
-    ranked = sorted(dist.items(),
-                    key=lambda kv: kv[1]["bad"] * 2 + kv[1]["warn"], reverse=True)
-    out = []
-    for k, d in ranked[:n]:
-        if d["bad"] + d["warn"] < 0.05:
-            continue
-        pct = round((d["bad"] + d["warn"]) * 100)
-        out.append((METRIC_LABELS[k], pct))
-    return out
 
 
 # Per-metric "notable" shot-to-shot spread: std at/above this = worth attention.
@@ -181,7 +151,7 @@ NOTABLE_STD = {
 }
 
 
-def _chart_shots(shots: list, ref: dict) -> Optional[str]:
+def _chart_shots(shots: list, ref: dict, lang: str) -> Optional[str]:
     if not shots:
         return None
     idx = list(range(1, len(shots) + 1))
@@ -192,19 +162,19 @@ def _chart_shots(shots: list, ref: dict) -> Optional[str]:
     ax1.bar(idx, jit, color="#b07cf0")
     ax1.axhline(s["wrist_jitter_warn"], color=_WARN, linestyle="--", linewidth=1)
     ax1.axhline(s["wrist_jitter_bad"], color=_BAD, linestyle="--", linewidth=1)
-    ax1.set_ylabel("tremore")
-    ax1.set_title("Per colpo: tremore in hold e durata")
+    ax1.set_ylabel(i18n.ui("ch_tremor", lang))
+    ax1.set_title(i18n.ui("ch_shots", lang))
     _style(ax1)
     ax2.bar(idx, dur, color="#5aa9e6")
-    ax2.set_ylabel("hold (s)")
-    ax2.set_xlabel("colpo #")
+    ax2.set_ylabel(i18n.ui("ch_hold_s", lang))
+    ax2.set_xlabel(i18n.ui("ch_shot_n", lang))
     ax2.set_xticks(idx)
     _style(ax2)
     fig.tight_layout()
     return _fig_to_b64(fig)
 
 
-def _chart_shot_consistency(shots: list) -> Optional[str]:
+def _chart_shot_consistency(shots: list, lang: str) -> Optional[str]:
     if len(shots) < 2:
         return None
     keys = ["torso_lean", "shoulder_elevation", "arm_extension", "wrist_alignment"]
@@ -216,18 +186,17 @@ def _chart_shot_consistency(shots: list) -> Optional[str]:
         if np.all(np.isnan(vals)):
             continue
         mean = np.nanmean(vals)
-        # normalise by the metric's notable std so all metrics share one y-scale
         norm = (vals - mean) / NOTABLE_STD.get(k, 1.0)
-        ax.plot(idx, norm, marker="o", linewidth=1.2, label=METRIC_LABELS[k])
+        ax.plot(idx, norm, marker="o", linewidth=1.2, label=_ml(k, lang))
         plotted = True
     if not plotted:
         plt.close(fig)
         return None
     ax.axhline(0, color="#666", linewidth=0.8)
-    ax.axhspan(-1, 1, color="#4fc36b", alpha=0.08)  # "consistent" band
-    ax.set_xlabel("colpo #")
-    ax.set_ylabel("scarto dal tuo assetto\n(unità di consistenza)")
-    ax.set_title("Ripetibilità colpo-su-colpo (dentro la fascia verde = costante)")
+    ax.axhspan(-1, 1, color="#4fc36b", alpha=0.08)
+    ax.set_xlabel(i18n.ui("ch_shot_n", lang))
+    ax.set_ylabel(i18n.ui("ch_rep_y", lang))
+    ax.set_title(i18n.ui("ch_rep", lang))
     ax.set_xticks(idx)
     _style(ax)
     ax.legend(facecolor=_BG, edgecolor="#3a3f47", labelcolor=_FG, fontsize=7)
@@ -237,28 +206,28 @@ def _chart_shot_consistency(shots: list) -> Optional[str]:
 MIN_SHOTS = 3  # fewer than this is too weak to judge repeatability
 
 
-def _consistency_faults(summary, n: int = 3) -> list:
+def _consistency_faults(summary, lang: str, n: int = 3) -> list:
     """Rank metrics by shot-to-shot spread relative to their notable std."""
     if not summary or summary.n_shots < MIN_SHOTS:
         return []
     ranked = []
-    for k, label in METRIC_LABELS.items():
+    for k in METRIC_KEYS:
         std = summary.consistency.get(k, float("nan"))
         if std != std:  # NaN
             continue
         ratio = std / NOTABLE_STD.get(k, 1.0)
-        ranked.append((label, std, ratio))
+        ranked.append((_ml(k, lang), std, ratio))
     ranked.sort(key=lambda x: x[2], reverse=True)
     return [(label, std) for label, std, ratio in ranked[:n] if ratio >= 1.0]
 
 
-def _verdict_consistency(summary, ref: dict) -> tuple:
+def _verdict_consistency(summary, ref: dict, lang: str) -> tuple:
     """Verdict from repeatability + stability (the reliable signals)."""
     if not summary or summary.n_shots < MIN_SHOTS:
-        return (f"Servono almeno {MIN_SHOTS} colpi per il verdetto", _WARN, 0)
+        return (i18n.ui("verdict_few", lang, n=MIN_SHOTS), _WARN, 0)
     # consistency: 1 = every metric well within its notable std
     ratios = []
-    for k in METRIC_LABELS:
+    for k in METRIC_KEYS:
         std = summary.consistency.get(k, float("nan"))
         if std == std:
             ratios.append(min(1.0, NOTABLE_STD.get(k, 1.0) / max(std, 1e-6)))
@@ -275,10 +244,10 @@ def _verdict_consistency(summary, ref: dict) -> tuple:
         stability = 1.0 if jit <= s["wrist_jitter_warn"] else stability
     score = 100.0 * (0.6 * consistency + 0.4 * stability)
     if score >= 80:
-        return ("Molto costante", _OK, score)
+        return (i18n.ui("verdict_hi", lang), _OK, score)
     if score >= 60:
-        return ("Costante, con margini", _WARN, score)
-    return ("Ripetibilità da migliorare", _BAD, score)
+        return (i18n.ui("verdict_mid", lang), _WARN, score)
+    return (i18n.ui("verdict_lo", lang), _BAD, score)
 
 
 def _fnum(x) -> Optional[float]:
@@ -292,7 +261,7 @@ def _fnum(x) -> Optional[float]:
     return None if xf != xf else round(xf, 3)
 
 
-def _shots_json(shots: list) -> list:
+def _shots_json(shots: list, lang: str) -> list:
     out = []
     for i, s in enumerate(shots):
         out.append({
@@ -304,32 +273,33 @@ def _shots_json(shots: list) -> list:
             "tremor": _fnum(s.wrist_jitter),
             "peak": _fnum(s.raise_peak),
             "settle": _fnum(s.settle_elev),
-            "metrics": {METRIC_LABELS[k]: _fnum(v)
-                        for k, v in s.metrics_mean.items() if k in METRIC_LABELS},
+            "metrics": {_ml(k, lang): _fnum(v)
+                        for k, v in s.metrics_mean.items() if k in METRIC_KEYS},
         })
     return out
 
 
 def build_report(records: list, shots: list, summary, ref: dict,
-                 out_path: Path, when: str = "") -> Path:
+                 out_path: Path, when: str = "", lang: str = "it") -> Path:
+    U = lambda k, **kw: i18n.ui(k, lang, **kw)
     dist = _fault_distribution(records)
     mean_jit = summary.mean_wrist_jitter if summary else float("nan")
-    verdict, vcolor, score = _verdict_consistency(summary, ref)
-    top = _consistency_faults(summary)
+    verdict, vcolor, score = _verdict_consistency(summary, ref, lang)
+    top = _consistency_faults(summary, lang)
     n_shots = summary.n_shots if summary else 0
 
     # ---- overview (aggregate) charts ----
     charts = []
-    for ch in (_chart_shots(shots, ref), _chart_shot_consistency(shots)):
+    for ch in (_chart_shots(shots, ref, lang), _chart_shot_consistency(shots, lang)):
         if ch:
             charts.append(ch)
     if records:
-        charts.append(_chart_timeline(records, shots))
-    st_chart = _chart_stability(records, ref)
+        charts.append(_chart_timeline(records, shots, lang))
+    st_chart = _chart_stability(records, ref, lang)
     if st_chart:
         charts.append(st_chart)
     if dist:
-        charts.append(_chart_distribution(dist))
+        charts.append(_chart_distribution(dist, lang))
     charts_html = "".join(
         f'<div class="card"><img src="data:image/png;base64,{b64}"/></div>'
         for b64 in charts)
@@ -337,74 +307,77 @@ def build_report(records: list, shots: list, summary, ref: dict,
     # consistency table
     cons_rows = ""
     if summary:
-        for k, label in METRIC_LABELS.items():
+        for k in METRIC_KEYS:
             std = summary.consistency.get(k, float("nan"))
             mean = summary.means.get(k, float("nan"))
             if std == std:
-                cons_rows += (f"<tr><td>{label}</td><td>{mean:.2f}</td>"
+                cons_rows += (f"<tr><td>{_ml(k, lang)}</td><td>{mean:.2f}</td>"
                               f"<td>{std:.2f}</td></tr>")
-    cons_rows = cons_rows or '<tr><td colspan="3">Nessun colpo rilevato</td></tr>'
+    cons_rows = cons_rows or f'<tr><td colspan="3">{U("no_shots")}</td></tr>'
 
     if summary and summary.n_shots >= MIN_SHOTS:
         top_html = "".join(
-            f'<li><b>{name}</b> — poco ripetibile: varia di ±{std:.2f} tra i colpi</li>'
-            for name, std in top) or "<li>Ottima ripetibilità colpo-su-colpo 👌</li>"
+            f'<li>{U("low_rep", name=f"<b>{name}</b>", std=f"{std:.2f}")}</li>'
+            for name, std in top) or f"<li>{U('good_rep')}</li>"
     else:
-        top_html = (f"<li>Servono almeno {MIN_SHOTS} colpi per l'analisi di "
-                    f"ripetibilità (ne ho rilevati {n_shots}). Esegui più cicli: "
-                    "alza il braccio, mira, spara, abbassa.</li>")
+        top_html = f"<li>{U('need_shots', n=MIN_SHOTS, have=n_shots)}</li>"
 
-    not_eval = [label for k, label in METRIC_LABELS.items() if k not in dist]
+    not_eval = [_ml(k, lang) for k in METRIC_KEYS if k not in dist]
     noteval_html = ""
     if not_eval:
-        noteval_html = ('<h2>Non valutato (fuori inquadratura)</h2>'
-                        '<p class="muted">Non erano ben inquadrate, quindi non '
-                        'giudicate: <b>' + ", ".join(not_eval) + '</b>.</p>')
+        noteval_html = (f'<h2>{U("not_eval_h")}</h2><p class="muted">'
+                        + U("not_eval_p", items="<b>" + ", ".join(not_eval) + "</b>")
+                        + '</p>')
 
     overview_html = (
-        f'<h2>Su cosa lavorare (ripetibilità)</h2><ul>{top_html}</ul>'
+        f'<h2>{U("work_on")}</h2><ul>{top_html}</ul>'
         f'{noteval_html}'
-        f'<h2>Grafici di sessione</h2>{charts_html}'
-        f'<h2>Ripetibilità colpo-su-colpo</h2>'
-        f'<table><tr><th>Metrica</th><th>Media</th><th>Dev. std (↓ meglio)</th></tr>'
-        f'{cons_rows}</table>'
+        f'<h2>{U("charts")}</h2>{charts_html}'
+        f'<h2>{U("rep_table")}</h2>'
+        f'<table><tr><th>{U("th_metric")}</th><th>{U("th_mean")}</th>'
+        f'<th>{U("th_std")}</th></tr>{cons_rows}</table>'
     )
 
     data = {
-        "shots": _shots_json(shots),
+        "shots": _shots_json(shots, lang),
         "overview": overview_html,
         "tremor_warn": ref["stability"]["wrist_jitter_warn"],
         "tremor_bad": ref["stability"]["wrist_jitter_bad"],
+        "L": {k: U(k) for k in (
+            "shot", "kpi_total", "kpi_rise", "kpi_hold", "kpi_descent", "kpi_tremor",
+            "kpi_peak", "kpi_settle", "kpi_above", "phases", "ph_rise", "ph_hold",
+            "ph_descent", "steady_posture", "th_metric", "th_value")},
     }
     mean_jit_s = "n/d" if mean_jit != mean_jit else f"{mean_jit:.4f}"
 
     shot_buttons = "".join(
-        f'<button data-k="{i}">Colpo {i + 1}</button>' for i in range(n_shots))
+        f'<button data-k="{i}">{U("shot")} {i + 1}</button>' for i in range(n_shots))
 
     html = (_HEAD
-            + f'<div class="muted">Pistola ad aria compressa 10 m · {when}</div>'
+            + f'<h1><b>tenring</b> — {U("report_title")}</h1>'
+            + f'<div class="muted">{U("subtitle")} · {when}</div>'
             + f'<div class="hero"><div class="score" style="color:{vcolor}">{int(score)}</div>'
             + f'<div><div class="verdict" style="color:{vcolor}">{verdict}</div>'
-            + '<div class="muted">punteggio 0–100 (ripetibilità + stabilità)</div></div></div>'
+            + f'<div class="muted">{U("score_sub")}</div></div></div>'
             + '<div class="grid">'
-            + f'<div class="stat"><div class="n">{n_shots}</div><div class="l">colpi rilevati</div></div>'
-            + f'<div class="stat"><div class="n">{len(records)}</div><div class="l">frame in mira</div></div>'
-            + f'<div class="stat"><div class="n">{mean_jit_s}</div><div class="l">tremore medio (hold)</div></div>'
+            + f'<div class="stat"><div class="n">{n_shots}</div><div class="l">{U("stat_shots")}</div></div>'
+            + f'<div class="stat"><div class="n">{len(records)}</div><div class="l">{U("stat_frames")}</div></div>'
+            + f'<div class="stat"><div class="n">{mean_jit_s}</div><div class="l">{U("stat_tremor")}</div></div>'
             + '</div>'
             + '<div class="layout"><aside class="shotlist" id="shotlist">'
-            + '<button data-k="overview" class="active">Panoramica</button>'
+            + f'<button data-k="overview" class="active">{U("overview")}</button>'
             + shot_buttons
             + '</aside><main class="detail" id="detail"></main></div>'
-            + _FOOT
+            + f'<div class="foot">{U("footer")}</div>'
             + '<script>const DATA=' + json.dumps(data, ensure_ascii=False) + ';'
             + _JS + '</script></body></html>')
     out_path.write_text(html, encoding="utf-8")
     return out_path
 
 
-_HEAD = """<!doctype html><html lang="it"><head><meta charset="utf-8">
+_HEAD = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>tenring — resoconto sessione</title>
+<title>tenring — session report</title>
 <style>
 :root{--bg:#0f1216;--fg:#e6e6e6;--muted:#9aa3ad;--card:#171b21;--line:#2a2f37;--accent:#5aa9e6}
 *{box-sizing:border-box}
@@ -453,13 +426,7 @@ border-radius:12px;padding:13px 14px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:middle}
 .foot{color:var(--muted);font-size:12px;margin-top:30px}
 @media(max-width:640px){.layout{grid-template-columns:1fr}}
-</style></head><body><div class="wrap">
-<h1><b>tenring</b> — resoconto sessione</h1>"""
-
-_FOOT = """<div class="foot">Generato da tenring · valutazione sulla TUA postura di
-sessione (deviazione dal tuo assetto), con guardrail dalla teoria del tiro 10 m
-(docs/THEORY.md). Solo fasi in mira; la discesa post-sparo è esclusa. Tremore nel
-piano frontale. Non misura la mira/mirino (dominio SCATT): analizza il corpo.</div>"""
+</style></head><body><div class="wrap">"""
 
 _JS = r"""
 const C_RISE="#5aa9e6",C_HOLD="#4fc36b",C_DESC="#9aa3ad";
@@ -468,30 +435,32 @@ function s2(x){return x==null?"n/d":x.toFixed(2);}
 function s3(x){return x==null?"n/d":x.toFixed(3);}
 function tremorColor(t){if(t==null)return"var(--muted)";if(t>DATA.tremor_bad)return"#e8503a";if(t>DATA.tremor_warn)return"#f2c14e";return"#4fc36b";}
 function phaseBar(sh){
+  const L=DATA.L;
   const r=sh.rise||0,h=sh.hold||0,d=sh.descent||0,tot=(r+h+d)||1;
   const seg=(w,c,lbl)=>`<span style="flex:${w};background:${c}">${w/tot>0.12?lbl:""}</span>`;
-  return `<div class="phasebar">${seg(r,C_RISE,"salita+mira")}${seg(h,C_HOLD,"hold")}${seg(d,C_DESC,"discesa")}</div>
-  <div class="legend"><span><i style="background:${C_RISE}"></i>salita+mira ${s1(sh.rise)}s</span>
-  <span><i style="background:${C_HOLD}"></i>hold ${s1(sh.hold)}s</span>
-  <span><i style="background:${C_DESC}"></i>discesa ${s1(sh.descent)}s</span></div>`;
+  return `<div class="phasebar">${seg(r,C_RISE,L.ph_rise)}${seg(h,C_HOLD,L.ph_hold)}${seg(d,C_DESC,L.ph_descent)}</div>
+  <div class="legend"><span><i style="background:${C_RISE}"></i>${L.ph_rise} ${s1(sh.rise)}s</span>
+  <span><i style="background:${C_HOLD}"></i>${L.ph_hold} ${s1(sh.hold)}s</span>
+  <span><i style="background:${C_DESC}"></i>${L.ph_descent} ${s1(sh.descent)}s</span></div>`;
 }
 function shotHTML(sh){
+  const L=DATA.L;
   let rows="";for(const k in sh.metrics){rows+=`<tr><td>${k}</td><td>${s2(sh.metrics[k])}</td></tr>`;}
   const above=(sh.peak!=null&&sh.settle!=null)?(sh.peak-sh.settle):null;
-  return `<h2>Colpo ${sh.n}</h2>
+  return `<h2>${L.shot} ${sh.n}</h2>
   <div class="kpis">
-    <div class="kpi"><div class="n">${s1(sh.total)}s</div><div class="l">tempo totale colpo</div></div>
-    <div class="kpi"><div class="n">${s1(sh.rise)}s</div><div class="l">salita + mira</div></div>
-    <div class="kpi"><div class="n">${s1(sh.hold)}s</div><div class="l">durata hold</div></div>
-    <div class="kpi"><div class="n">${s1(sh.descent)}s</div><div class="l">discesa</div></div>
-    <div class="kpi"><div class="n" style="color:${tremorColor(sh.tremor)}">${s3(sh.tremor)}</div><div class="l">tremore in hold</div></div>
-    <div class="kpi"><div class="n">${s1(sh.peak)}°</div><div class="l">picco elevazione braccio</div></div>
-    <div class="kpi"><div class="n">${s1(sh.settle)}°</div><div class="l">elevazione in hold</div></div>
-    <div class="kpi"><div class="n">${above==null?"n/d":"+"+above.toFixed(1)+"°"}</div><div class="l">salita sopra il bersaglio</div></div>
+    <div class="kpi"><div class="n">${s1(sh.total)}s</div><div class="l">${L.kpi_total}</div></div>
+    <div class="kpi"><div class="n">${s1(sh.rise)}s</div><div class="l">${L.kpi_rise}</div></div>
+    <div class="kpi"><div class="n">${s1(sh.hold)}s</div><div class="l">${L.kpi_hold}</div></div>
+    <div class="kpi"><div class="n">${s1(sh.descent)}s</div><div class="l">${L.kpi_descent}</div></div>
+    <div class="kpi"><div class="n" style="color:${tremorColor(sh.tremor)}">${s3(sh.tremor)}</div><div class="l">${L.kpi_tremor}</div></div>
+    <div class="kpi"><div class="n">${s1(sh.peak)}°</div><div class="l">${L.kpi_peak}</div></div>
+    <div class="kpi"><div class="n">${s1(sh.settle)}°</div><div class="l">${L.kpi_settle}</div></div>
+    <div class="kpi"><div class="n">${above==null?"n/d":"+"+above.toFixed(1)+"°"}</div><div class="l">${L.kpi_above}</div></div>
   </div>
-  <h2>Fasi del colpo</h2>${phaseBar(sh)}
-  <h2>Postura all'istante più fermo</h2>
-  <table><tr><th>Metrica</th><th>Valore</th></tr>${rows}</table>`;
+  <h2>${L.phases}</h2>${phaseBar(sh)}
+  <h2>${L.steady_posture}</h2>
+  <table><tr><th>${L.th_metric}</th><th>${L.th_value}</th></tr>${rows}</table>`;
 }
 function render(k){
   const d=document.getElementById("detail");

@@ -64,8 +64,9 @@ def main() -> None:
     ref = cfg.load_reference()
     profile = cfg.load_profile()
     handedness = ref["setup"]["handedness"]
+    lang = ref["setup"].get("feedback_language", "it")
 
-    engine = RuleEngine(ref, profile)
+    engine = RuleEngine(ref, profile, lang=lang)
 
     cam_index = args.camera if args.camera >= 0 else capture.autodetect()
     cap = capture.open_camera(cam_index, args.width, args.height)
@@ -123,7 +124,8 @@ def main() -> None:
 
             overlay.draw_skeleton(frame, pose, armed_side=armed_side)
             overlay.draw_hud(frame, findings, fs, ref,
-                             fps=fps, n_shots=len(sm.shots), armed_side=armed_side)
+                             fps=fps, n_shots=len(sm.shots), armed_side=armed_side,
+                             lang=lang)
 
             dt = now - prev
             prev = now
@@ -151,6 +153,7 @@ def _save_session(sm: StateMachine, recorder: SessionRecorder, ref: dict,
                   "con il braccio alzato, corpo inquadrato).")
         return
 
+    lang = ref["setup"].get("feedback_language", "it")
     summary = summarize(sm.shots)
     out = Path(cfg._ROOT) / "sessions"
     out.mkdir(exist_ok=True)
@@ -162,12 +165,12 @@ def _save_session(sm: StateMachine, recorder: SessionRecorder, ref: dict,
 
     # text summary (if shots detected)
     if summary is not None:
-        (out / f"session_{stamp}.txt").write_text(summary.to_text(ref), encoding="utf-8")
-        print("\n" + summary.to_text(ref))
+        (out / f"session_{stamp}.txt").write_text(summary.to_text(ref, lang), encoding="utf-8")
+        print("\n" + summary.to_text(ref, lang))
 
     # HTML report + open it
     html_path = out / f"session_{stamp}.html"
-    build_report(recorder.frames, sm.shots, summary, ref, html_path, when=when)
+    build_report(recorder.frames, sm.shots, summary, ref, html_path, when=when, lang=lang)
     print(f"[tenring] report: {html_path}")
     try:
         import webbrowser
